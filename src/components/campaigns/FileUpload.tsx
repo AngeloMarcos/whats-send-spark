@@ -13,12 +13,11 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
-import { sendBulkToBackend, ContactRow } from '@/services/bulkSender';
+import { sendBulkToN8n, ContactRow, BulkPayload } from '@/services/bulkSender';
 import { 
   validateContacts, 
   applyAutoCorrection, 
   PhoneValidationResult,
-  cleanPhoneNumber,
   formatToInternational
 } from '@/lib/phoneValidation';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -34,9 +33,23 @@ import {
   AlertTriangle,
   XCircle,
   Wrench,
-  Save
+  Save,
+  RotateCcw
 } from 'lucide-react';
 import { Campaign } from '@/types/database';
+
+type SendStatus = 'idle' | 'loading' | 'success' | 'error';
+
+interface SendResult {
+  contactsSent: number;
+  campaignName: string;
+  n8nResponse?: {
+    sent?: number;
+    campaignName?: string;
+    [key: string]: unknown;
+  };
+  error?: string;
+}
 
 interface FileUploadProps {
   onCampaignCreated: (campaign: Campaign) => void;
@@ -53,6 +66,8 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [validationResult, setValidationResult] = useState<PhoneValidationResult | null>(null);
+  const [sendStatus, setSendStatus] = useState<SendStatus>('idle');
+  const [sendResult, setSendResult] = useState<SendResult | null>(null);
   
   const [formData, setFormData] = useState({
     campaignName: '',
@@ -137,6 +152,23 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
     setNameColumn('');
     setFileName('');
     setValidationResult(null);
+  };
+
+  const resetForm = () => {
+    clearFile();
+    setFormData({
+      campaignName: '',
+      message: '',
+      sendNow: true,
+      scheduledAt: '',
+      sendLimit: '',
+      useAi: false,
+      aiPrompt: '',
+      saveAsList: false,
+      listName: '',
+    });
+    setSendStatus('idle');
+    setSendResult(null);
   };
 
   const handleAutoCorrect = () => {
@@ -229,24 +261,10 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
     }
 
     setIsSubmitting(true);
+    setSendStatus('loading');
+    setSendResult(null);
+
     try {
-      // Get settings for webhook URL
-      const { data: settings } = await supabase
-        .from('settings')
-        .select('n8n_webhook_url')
-        .eq('user_id', user.id)
-        .single();
-
-      if (!settings?.n8n_webhook_url) {
-        toast({
-          title: 'Configure o webhook',
-          description: 'Acesse Configurações e adicione a URL do webhook do n8n',
-          variant: 'destructive',
-        });
-        setIsSubmitting(false);
-        return;
-      }
-
       // Get only valid contacts
       const contactsToSend = validationResult 
         ? validationResult.validContacts 
@@ -266,13 +284,14 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
       });
 
       const sendLimit = formData.sendLimit ? parseInt(formData.sendLimit) : null;
-      const contactsCount = sendLimit ? Math.min(sendLimit, normalizedContacts.length) : normalizedContacts.length;
+      const contactsToProcess = sendLimit 
+        ? normalizedContacts.slice(0, sendLimit) 
+        : normalizedContacts;
 
       let listId: string | null = null;
 
       // Save contacts as a new list if requested
       if (formData.saveAsList && formData.listName.trim()) {
-        // Create list of type 'local'
         const { data: newList, error: listError } = await supabase
           .from('lists')
           .insert({
@@ -280,7 +299,7 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
             name: formData.listName.trim(),
             list_type: 'local',
             sheet_id: null,
-            contact_count: 0, // Will be updated by trigger
+            contact_count: 0,
           })
           .select()
           .single();
@@ -288,7 +307,6 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
         if (listError) throw listError;
         listId = newList.id;
 
-        // Insert contacts in batches
         const contactsToInsert = normalizedContacts.map((contact) => ({
           user_id: user.id,
           list_id: newList.id,
@@ -299,7 +317,6 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
           is_valid: true,
         }));
 
-        // Insert in chunks of 100
         const chunkSize = 100;
         for (let i = 0; i < contactsToInsert.length; i += chunkSize) {
           const chunk = contactsToInsert.slice(i, i + chunkSize);
@@ -327,56 +344,53 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
           send_now: formData.sendNow,
           scheduled_at: formData.scheduledAt || null,
           send_limit: sendLimit,
-          contacts_total: contactsCount,
+          contacts_total: contactsToProcess.length,
         })
         .select()
         .single();
 
       if (campaignError) throw campaignError;
 
-      // Send to webhook via edge function
-      const result = await sendBulkToBackend({
-        campaignId: campaign.id,
-        contacts: normalizedContacts,
-        message: formData.message,
-        webhookUrl: settings.n8n_webhook_url,
-        sendNow: formData.sendNow,
-        scheduledAt: formData.scheduledAt || null,
-        sendLimit,
-      });
+      // Build payload in the exact format required by n8n
+      const payload: BulkPayload = {
+        contacts: contactsToProcess,
+        metadata: {
+          campaignName: formData.campaignName,
+          messageBase: formData.message,
+        },
+      };
+
+      // Send directly to n8n webhook
+      const n8nResponse = await sendBulkToN8n(payload);
 
       // Update campaign with execution info if returned
-      if (result?.executionId) {
+      if (n8nResponse?.executionId) {
         await supabase
           .from('campaigns')
-          .update({ execution_id: result.executionId })
+          .update({ execution_id: n8nResponse.executionId })
           .eq('id', campaign.id);
       }
 
-      toast({ 
-        title: 'Campanha iniciada!',
-        description: `${contactsCount} contatos serão enviados para o n8n`,
+      // Set success state
+      setSendStatus('success');
+      setSendResult({
+        contactsSent: contactsToProcess.length,
+        campaignName: formData.campaignName,
+        n8nResponse,
       });
       
       onCampaignCreated(campaign as Campaign);
 
-      // Reset form
-      clearFile();
-      setFormData({
-        campaignName: '',
-        message: '',
-        sendNow: true,
-        scheduledAt: '',
-        sendLimit: '',
-        useAi: false,
-        aiPrompt: '',
-        saveAsList: false,
-        listName: '',
-      });
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
+      setSendStatus('error');
+      setSendResult({
+        contactsSent: 0,
+        campaignName: formData.campaignName,
+        error: errorMessage,
+      });
       toast({
-        title: 'Erro ao criar campanha',
+        title: 'Erro ao enviar para n8n',
         description: errorMessage,
         variant: 'destructive',
       });
@@ -415,6 +429,53 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {/* Send Result Feedback */}
+          {sendStatus === 'success' && sendResult && (
+            <Alert className="border-emerald-500/50 bg-emerald-500/10 mb-6">
+              <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+              <AlertTitle className="text-emerald-700 dark:text-emerald-400">
+                Disparo iniciado com sucesso!
+              </AlertTitle>
+              <AlertDescription className="space-y-2">
+                <p>Contatos enviados: <strong>{sendResult.contactsSent}</strong></p>
+                <p>Campanha: <strong>{sendResult.campaignName}</strong></p>
+                {sendResult.n8nResponse?.sent && (
+                  <p>Processados pelo n8n: <strong>{sendResult.n8nResponse.sent}</strong></p>
+                )}
+                <Button 
+                  onClick={resetForm} 
+                  variant="outline" 
+                  size="sm" 
+                  className="mt-3"
+                >
+                  <RotateCcw className="h-4 w-4 mr-2" />
+                  Novo Disparo
+                </Button>
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {sendStatus === 'error' && sendResult && (
+            <Alert className="border-red-500/50 bg-red-500/10 mb-6">
+              <XCircle className="h-5 w-5 text-red-500" />
+              <AlertTitle className="text-red-700 dark:text-red-400">
+                Erro no disparo
+              </AlertTitle>
+              <AlertDescription className="space-y-2">
+                <p>{sendResult.error || 'Erro desconhecido ao enviar para o n8n'}</p>
+                <Button 
+                  onClick={() => setSendStatus('idle')} 
+                  variant="outline" 
+                  size="sm" 
+                  className="mt-3"
+                >
+                  <RotateCcw className="h-4 w-4 mr-2" />
+                  Tentar Novamente
+                </Button>
+              </AlertDescription>
+            </Alert>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* File Upload */}
             <div className="space-y-2">
@@ -695,12 +756,12 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
               type="submit" 
               className="w-full" 
               size="lg" 
-              disabled={isSubmitting || rows.length === 0}
+              disabled={isSubmitting || rows.length === 0 || sendStatus === 'success'}
             >
               {isSubmitting ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Enviando...
+                  Enviando lista para n8n...
                 </>
               ) : (
                 <>
