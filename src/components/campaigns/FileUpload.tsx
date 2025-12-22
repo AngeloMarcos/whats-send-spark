@@ -21,6 +21,7 @@ import {
   cleanPhoneNumber,
   formatToInternational
 } from '@/lib/phoneValidation';
+import { Checkbox } from '@/components/ui/checkbox';
 import { 
   Upload, 
   FileSpreadsheet, 
@@ -32,7 +33,8 @@ import {
   CheckCircle2,
   AlertTriangle,
   XCircle,
-  Wrench
+  Wrench,
+  Save
 } from 'lucide-react';
 import { Campaign } from '@/types/database';
 
@@ -60,6 +62,8 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
     sendLimit: '',
     useAi: false,
     aiPrompt: '',
+    saveAsList: false,
+    listName: '',
   });
 
   // Validate phones whenever rows or phoneColumn changes
@@ -264,6 +268,53 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
       const sendLimit = formData.sendLimit ? parseInt(formData.sendLimit) : null;
       const contactsCount = sendLimit ? Math.min(sendLimit, normalizedContacts.length) : normalizedContacts.length;
 
+      let listId: string | null = null;
+
+      // Save contacts as a new list if requested
+      if (formData.saveAsList && formData.listName.trim()) {
+        // Create list of type 'local'
+        const { data: newList, error: listError } = await supabase
+          .from('lists')
+          .insert({
+            user_id: user.id,
+            name: formData.listName.trim(),
+            list_type: 'local',
+            sheet_id: null,
+            contact_count: 0, // Will be updated by trigger
+          })
+          .select()
+          .single();
+
+        if (listError) throw listError;
+        listId = newList.id;
+
+        // Insert contacts in batches
+        const contactsToInsert = normalizedContacts.map((contact) => ({
+          user_id: user.id,
+          list_id: newList.id,
+          name: contact.name || null,
+          phone: String(contact.phone),
+          email: null,
+          extra_data: contact,
+          is_valid: true,
+        }));
+
+        // Insert in chunks of 100
+        const chunkSize = 100;
+        for (let i = 0; i < contactsToInsert.length; i += chunkSize) {
+          const chunk = contactsToInsert.slice(i, i + chunkSize);
+          const { error: contactsError } = await supabase
+            .from('contacts')
+            .insert(chunk);
+          if (contactsError) throw contactsError;
+        }
+
+        toast({
+          title: 'Lista salva!',
+          description: `${contactsToInsert.length} contatos salvos na lista "${formData.listName}"`,
+        });
+      }
+
       // Create campaign in database
       const { data: campaign, error: campaignError } = await supabase
         .from('campaigns')
@@ -271,6 +322,7 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
           user_id: user.id,
           name: formData.campaignName,
           message: formData.message,
+          list_id: listId,
           status: formData.sendNow ? 'sending' : 'scheduled',
           send_now: formData.sendNow,
           scheduled_at: formData.scheduledAt || null,
@@ -318,6 +370,8 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
         sendLimit: '',
         useAi: false,
         aiPrompt: '',
+        saveAsList: false,
+        listName: '',
       });
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
@@ -562,6 +616,41 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
                 Placeholders: {"{{nome}}"}, {"{{telefone}}"}
               </p>
             </div>
+
+            {/* Save as List Option */}
+            {rows.length > 0 && (
+              <div className="space-y-3 rounded-lg border p-4 bg-muted/30">
+                <div className="flex items-center space-x-3">
+                  <Checkbox
+                    id="saveAsList"
+                    checked={formData.saveAsList}
+                    onCheckedChange={(checked) => 
+                      setFormData({ ...formData, saveAsList: checked === true })
+                    }
+                  />
+                  <div className="flex items-center gap-2">
+                    <Save className="h-4 w-4 text-primary" />
+                    <Label htmlFor="saveAsList" className="cursor-pointer">
+                      Salvar contatos como nova lista
+                    </Label>
+                  </div>
+                </div>
+                {formData.saveAsList && (
+                  <div className="space-y-2 pl-6">
+                    <Label htmlFor="listName">Nome da Lista *</Label>
+                    <Input
+                      id="listName"
+                      value={formData.listName}
+                      onChange={(e) => setFormData({ ...formData, listName: e.target.value })}
+                      placeholder="Ex: Leads Dezembro 2024"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Salve para reutilizar em futuras campanhas
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Scheduling */}
             <div className="flex items-center justify-between rounded-lg border p-4">

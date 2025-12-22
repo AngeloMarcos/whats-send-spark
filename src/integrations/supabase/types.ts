@@ -92,14 +92,62 @@ export type Database = {
           },
         ]
       }
+      contacts: {
+        Row: {
+          created_at: string
+          email: string | null
+          extra_data: Json | null
+          id: string
+          is_valid: boolean | null
+          list_id: string
+          name: string | null
+          phone: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          email?: string | null
+          extra_data?: Json | null
+          id?: string
+          is_valid?: boolean | null
+          list_id: string
+          name?: string | null
+          phone: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          email?: string | null
+          extra_data?: Json | null
+          id?: string
+          is_valid?: boolean | null
+          list_id?: string
+          name?: string | null
+          phone?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contacts_list_id_fkey"
+            columns: ["list_id"]
+            isOneToOne: false
+            referencedRelation: "lists"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       lists: {
         Row: {
           contact_count: number | null
           created_at: string
           description: string | null
           id: string
+          list_type: string | null
           name: string
-          sheet_id: string
+          sheet_id: string | null
           sheet_tab_id: string | null
           updated_at: string
           user_id: string
@@ -109,8 +157,9 @@ export type Database = {
           created_at?: string
           description?: string | null
           id?: string
+          list_type?: string | null
           name: string
-          sheet_id: string
+          sheet_id?: string | null
           sheet_tab_id?: string | null
           updated_at?: string
           user_id: string
@@ -120,8 +169,9 @@ export type Database = {
           created_at?: string
           description?: string | null
           id?: string
+          list_type?: string | null
           name?: string
-          sheet_id?: string
+          sheet_id?: string | null
           sheet_tab_id?: string | null
           updated_at?: string
           user_id?: string
