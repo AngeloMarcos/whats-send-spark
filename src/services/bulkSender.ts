@@ -1,29 +1,39 @@
-import { supabase } from '@/integrations/supabase/client';
+const N8N_WEBHOOK_URL =
+  "https://fierceparrot-n8n.cloudfy.live/webhook/disparo-massa";
 
+export interface Contact {
+  name?: string;
+  phone?: string;
+  [key: string]: string | number | null | undefined;
+}
+
+export interface BulkMetadata {
+  campaignName: string;
+  messageBase?: string;
+}
+
+export interface BulkPayload {
+  contacts: Contact[];
+  metadata: BulkMetadata;
+}
+
+export async function sendBulkToN8n(payload: BulkPayload) {
+  const response = await fetch(N8N_WEBHOOK_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Erro ao chamar n8n: ${response.status}`);
+  }
+
+  return response.json().catch(() => ({}));
+}
+
+// Keep old interface for backwards compatibility with existing code
 export interface ContactRow {
   name?: string;
   phone: string;
   [key: string]: string | number | null | undefined;
-}
-
-export interface BulkPayload {
-  campaignId: string;
-  contacts: ContactRow[];
-  message: string;
-  webhookUrl: string;
-  sendNow: boolean;
-  scheduledAt: string | null;
-  sendLimit: number | null;
-}
-
-export async function sendBulkToBackend(payload: BulkPayload) {
-  const { data, error } = await supabase.functions.invoke('send-bulk-campaign', {
-    body: payload,
-  });
-
-  if (error) {
-    throw new Error(error.message || 'Erro ao enviar lista para o webhook');
-  }
-
-  return data;
 }
