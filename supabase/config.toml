@@ -1,1 +1,10 @@
 project_id = "lwbdmycbsssibotzwgeu"
+
+[functions.generate-message]
+verify_jwt = false
+
+[functions.send-campaign]
+verify_jwt = false
+
+[functions.send-bulk-campaign]
+verify_jwt = false
