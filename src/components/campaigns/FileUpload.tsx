@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -8,11 +8,32 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { sendBulkToBackend, ContactRow } from '@/services/bulkSender';
-import { Upload, FileSpreadsheet, Send, Loader2, X, Sparkles, Wand2 } from 'lucide-react';
+import { 
+  validateContacts, 
+  applyAutoCorrection, 
+  PhoneValidationResult,
+  cleanPhoneNumber,
+  formatToInternational
+} from '@/lib/phoneValidation';
+import { 
+  Upload, 
+  FileSpreadsheet, 
+  Send, 
+  Loader2, 
+  X, 
+  Sparkles, 
+  Wand2,
+  CheckCircle2,
+  AlertTriangle,
+  XCircle,
+  Wrench
+} from 'lucide-react';
 import { Campaign } from '@/types/database';
 
 interface FileUploadProps {
@@ -29,6 +50,7 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
   const [fileName, setFileName] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [validationResult, setValidationResult] = useState<PhoneValidationResult | null>(null);
   
   const [formData, setFormData] = useState({
     campaignName: '',
@@ -39,6 +61,16 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
     useAi: false,
     aiPrompt: '',
   });
+
+  // Validate phones whenever rows or phoneColumn changes
+  useEffect(() => {
+    if (rows.length > 0 && phoneColumn) {
+      const result = validateContacts(rows, phoneColumn);
+      setValidationResult(result);
+    } else {
+      setValidationResult(null);
+    }
+  }, [rows, phoneColumn]);
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -100,6 +132,31 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
     setPhoneColumn('');
     setNameColumn('');
     setFileName('');
+    setValidationResult(null);
+  };
+
+  const handleAutoCorrect = () => {
+    if (!phoneColumn || rows.length === 0) return;
+    
+    const correctedRows = applyAutoCorrection(rows, phoneColumn) as ContactRow[];
+    setRows(correctedRows);
+    
+    toast({
+      title: 'Números corrigidos',
+      description: 'Os números foram formatados para o padrão WhatsApp Brasil',
+    });
+  };
+
+  const handleRemoveInvalid = () => {
+    if (!validationResult) return;
+    
+    const validRows = validationResult.validContacts as ContactRow[];
+    setRows(validRows);
+    
+    toast({
+      title: 'Contatos inválidos removidos',
+      description: `${validationResult.summary.invalidCount} contatos foram removidos`,
+    });
   };
 
   const generateAIMessage = async () => {
@@ -158,6 +215,15 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
       return;
     }
 
+    // Warn if there are invalid phones
+    if (validationResult && validationResult.summary.invalidCount > 0) {
+      toast({
+        title: 'Atenção: números inválidos',
+        description: `${validationResult.summary.invalidCount} contatos têm números inválidos e não receberão mensagens`,
+        variant: 'destructive',
+      });
+    }
+
     setIsSubmitting(true);
     try {
       // Get settings for webhook URL
@@ -177,12 +243,23 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
         return;
       }
 
-      // Normalize contacts
-      const normalizedContacts: ContactRow[] = rows.map((row) => ({
-        name: nameColumn ? String(row[nameColumn] ?? '') : '',
-        phone: String(row[phoneColumn] ?? ''),
-        ...row,
-      }));
+      // Get only valid contacts
+      const contactsToSend = validationResult 
+        ? validationResult.validContacts 
+        : rows;
+
+      // Normalize contacts with formatted phone numbers
+      const normalizedContacts: ContactRow[] = contactsToSend.map((row) => {
+        const phone = String(row[phoneColumn] ?? '');
+        const formattedPhone = formatToInternational(phone);
+        
+        return {
+          name: nameColumn ? String(row[nameColumn] ?? '') : '',
+          phone: formattedPhone,
+          ...row,
+          [phoneColumn]: formattedPhone,
+        };
+      });
 
       const sendLimit = formData.sendLimit ? parseInt(formData.sendLimit) : null;
       const contactsCount = sendLimit ? Math.min(sendLimit, normalizedContacts.length) : normalizedContacts.length;
@@ -253,6 +330,22 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
       setIsSubmitting(false);
     }
   };
+
+  // Helper to check if a row index is invalid
+  const isRowInvalid = (index: number): boolean => {
+    if (!validationResult) return false;
+    const info = validationResult.validationMap.get(index);
+    return info ? !info.isValid : false;
+  };
+
+  const getRowValidationInfo = (index: number) => {
+    if (!validationResult) return null;
+    return validationResult.validationMap.get(index);
+  };
+
+  const validCount = validationResult?.summary.validCount ?? 0;
+  const invalidCount = validationResult?.summary.invalidCount ?? 0;
+  const fixableCount = validationResult?.summary.fixableCount ?? 0;
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -330,6 +423,71 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
                   </Select>
                 </div>
               </div>
+            )}
+
+            {/* Validation Summary */}
+            {validationResult && rows.length > 0 && (
+              <Alert className={invalidCount > 0 ? 'border-amber-500/50 bg-amber-500/10' : 'border-emerald-500/50 bg-emerald-500/10'}>
+                <div className="flex items-start gap-3">
+                  {invalidCount > 0 ? (
+                    <AlertTriangle className="h-5 w-5 text-amber-500 mt-0.5" />
+                  ) : (
+                    <CheckCircle2 className="h-5 w-5 text-emerald-500 mt-0.5" />
+                  )}
+                  <div className="flex-1">
+                    <AlertTitle className="mb-2">
+                      Validação de Telefones
+                    </AlertTitle>
+                    <AlertDescription className="space-y-3">
+                      <div className="flex flex-wrap gap-2">
+                        <Badge variant="outline" className="bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border-emerald-500/30">
+                          <CheckCircle2 className="h-3 w-3 mr-1" />
+                          {validCount} válidos
+                        </Badge>
+                        {invalidCount > 0 && (
+                          <Badge variant="outline" className="bg-red-500/20 text-red-700 dark:text-red-400 border-red-500/30">
+                            <XCircle className="h-3 w-3 mr-1" />
+                            {invalidCount} inválidos
+                          </Badge>
+                        )}
+                        {fixableCount > 0 && (
+                          <Badge variant="outline" className="bg-amber-500/20 text-amber-700 dark:text-amber-400 border-amber-500/30">
+                            <Wrench className="h-3 w-3 mr-1" />
+                            {fixableCount} corrigíveis
+                          </Badge>
+                        )}
+                      </div>
+                      
+                      {invalidCount > 0 && (
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          {fixableCount > 0 && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={handleAutoCorrect}
+                              className="h-7 text-xs"
+                            >
+                              <Wrench className="h-3 w-3 mr-1" />
+                              Corrigir automaticamente
+                            </Button>
+                          )}
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={handleRemoveInvalid}
+                            className="h-7 text-xs"
+                          >
+                            <X className="h-3 w-3 mr-1" />
+                            Remover inválidos
+                          </Button>
+                        </div>
+                      )}
+                    </AlertDescription>
+                  </div>
+                </div>
+              </Alert>
             )}
 
             {/* Campaign Name */}
@@ -458,7 +616,7 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
               ) : (
                 <>
                   <Send className="mr-2 h-4 w-4" />
-                  Iniciar Disparo ({rows.length} contatos)
+                  Iniciar Disparo ({validCount > 0 ? validCount : rows.length} contatos)
                 </>
               )}
             </Button>
@@ -488,6 +646,7 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-10 text-center">#</TableHead>
                     {headers.map((h) => (
                       <TableHead key={h} className={
                         h === phoneColumn ? 'bg-primary/10 text-primary' :
@@ -501,15 +660,42 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {rows.slice(0, 30).map((row, idx) => (
-                    <TableRow key={idx}>
-                      {headers.map((h) => (
-                        <TableCell key={h} className="text-sm">
-                          {String(row[h] ?? '')}
+                  {rows.slice(0, 30).map((row, idx) => {
+                    const isInvalid = isRowInvalid(idx);
+                    const validationInfo = getRowValidationInfo(idx);
+                    
+                    return (
+                      <TableRow 
+                        key={idx} 
+                        className={isInvalid ? 'bg-red-500/10 hover:bg-red-500/20' : ''}
+                      >
+                        <TableCell className="text-center text-xs text-muted-foreground">
+                          {isInvalid ? (
+                            <div className="flex items-center justify-center" title={validationInfo?.reason}>
+                              <XCircle className="h-4 w-4 text-red-500" />
+                            </div>
+                          ) : (
+                            <div className="flex items-center justify-center">
+                              <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                            </div>
+                          )}
                         </TableCell>
-                      ))}
-                    </TableRow>
-                  ))}
+                        {headers.map((h) => (
+                          <TableCell 
+                            key={h} 
+                            className={`text-sm ${h === phoneColumn && isInvalid ? 'text-red-500 font-medium' : ''}`}
+                          >
+                            {String(row[h] ?? '')}
+                            {h === phoneColumn && validationInfo?.canFix && validationInfo.correctedPhone && (
+                              <span className="block text-xs text-amber-600 dark:text-amber-400">
+                                → {validationInfo.correctedPhone}
+                              </span>
+                            )}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>
