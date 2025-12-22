@@ -1,5 +1,4 @@
-const N8N_WEBHOOK_URL =
-  "https://fierceparrot-n8n.cloudfy.live/webhook/disparo-massa";
+import { supabase } from '@/integrations/supabase/client';
 
 export interface Contact {
   name?: string;
@@ -17,18 +16,38 @@ export interface BulkPayload {
   metadata: BulkMetadata;
 }
 
-export async function sendBulkToN8n(payload: BulkPayload) {
-  const response = await fetch(N8N_WEBHOOK_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+export interface SendBulkOptions {
+  campaignId: string;
+  webhookUrl: string;
+  contacts: Contact[];
+  message: string;
+  sendNow: boolean;
+  scheduledAt?: string | null;
+  sendLimit?: number | null;
+}
+
+/**
+ * Sends bulk campaign data via the secure Edge Function.
+ * The Edge Function validates the webhook URL server-side to prevent SSRF attacks.
+ */
+export async function sendBulkCampaign(options: SendBulkOptions) {
+  const { data, error } = await supabase.functions.invoke('send-bulk-campaign', {
+    body: {
+      campaignId: options.campaignId,
+      webhookUrl: options.webhookUrl,
+      contacts: options.contacts,
+      message: options.message,
+      sendNow: options.sendNow,
+      scheduledAt: options.scheduledAt,
+      sendLimit: options.sendLimit,
+    },
   });
 
-  if (!response.ok) {
-    throw new Error(`Erro ao chamar n8n: ${response.status}`);
+  if (error) {
+    throw new Error(error.message || 'Erro ao enviar campanha');
   }
 
-  return response.json().catch(() => ({}));
+  return data;
 }
 
 // Keep old interface for backwards compatibility with existing code
