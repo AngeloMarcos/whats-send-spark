@@ -13,7 +13,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
-import { sendBulkToN8n, ContactRow, BulkPayload } from '@/services/bulkSender';
+import { sendBulkCampaign, ContactRow } from '@/services/bulkSender';
 import { 
   validateContacts, 
   applyAutoCorrection, 
@@ -332,7 +332,7 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
         });
       }
 
-      // Create campaign in database
+      // Create campaign in database first
       const { data: campaign, error: campaignError } = await supabase
         .from('campaigns')
         .insert({
@@ -351,32 +351,42 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
 
       if (campaignError) throw campaignError;
 
-      // Build payload in the exact format required by n8n
-      const payload: BulkPayload = {
-        contacts: contactsToProcess,
-        metadata: {
-          campaignName: formData.campaignName,
-          messageBase: formData.message,
-        },
-      };
+      // Get user's webhook URL from settings
+      const { data: settings, error: settingsError } = await supabase
+        .from('settings')
+        .select('n8n_webhook_url')
+        .eq('user_id', user.id)
+        .single();
 
-      // Send directly to n8n webhook
-      const n8nResponse = await sendBulkToN8n(payload);
+      if (settingsError || !settings?.n8n_webhook_url) {
+        throw new Error('Configure o URL do webhook nas Configurações antes de enviar campanhas');
+      }
+
+      // Send via secure Edge Function (validates URL server-side)
+      const response = await sendBulkCampaign({
+        campaignId: campaign.id,
+        webhookUrl: settings.n8n_webhook_url,
+        contacts: contactsToProcess,
+        message: formData.message,
+        sendNow: formData.sendNow,
+        scheduledAt: formData.scheduledAt || null,
+        sendLimit,
+      });
 
       // Update campaign with execution info if returned
-      if (n8nResponse?.executionId) {
+      if (response?.executionId) {
         await supabase
           .from('campaigns')
-          .update({ execution_id: n8nResponse.executionId })
+          .update({ execution_id: response.executionId })
           .eq('id', campaign.id);
       }
 
       // Set success state
       setSendStatus('success');
       setSendResult({
-        contactsSent: contactsToProcess.length,
+        contactsSent: response?.contactsSent || contactsToProcess.length,
         campaignName: formData.campaignName,
-        n8nResponse,
+        n8nResponse: response,
       });
       
       onCampaignCreated(campaign as Campaign);
