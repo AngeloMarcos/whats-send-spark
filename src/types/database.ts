@@ -17,14 +17,30 @@ export interface Settings {
   updated_at: string;
 }
 
+export type ListType = 'google_sheets' | 'local';
+
 export interface List {
   id: string;
   user_id: string;
   name: string;
-  sheet_id: string;
+  list_type: ListType;
+  sheet_id: string | null;
   sheet_tab_id: string | null;
   description: string | null;
   contact_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Contact {
+  id: string;
+  user_id: string;
+  list_id: string;
+  name: string | null;
+  phone: string;
+  email: string | null;
+  extra_data: Record<string, unknown>;
+  is_valid: boolean;
   created_at: string;
   updated_at: string;
 }
