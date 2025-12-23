@@ -11,6 +11,7 @@ import { CampaignHistory } from '@/components/campaigns/CampaignHistory';
 import { FileUpload } from '@/components/campaigns/FileUpload';
 import { useToast } from '@/hooks/use-toast';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { SkeletonTabs, SkeletonCard } from '@/components/ui/loading-skeletons';
 import { FileSpreadsheet, Link } from 'lucide-react';
 
 export default function Campaigns() {
@@ -65,51 +66,62 @@ export default function Campaigns() {
       />
       
       <div className="flex-1 overflow-auto p-6">
-        <Tabs defaultValue="sheets" className="space-y-6">
-          <TabsList className="grid w-full max-w-md grid-cols-2">
-            <TabsTrigger value="sheets" className="flex items-center gap-2">
-              <Link className="h-4 w-4" />
-              Via Google Sheets
-            </TabsTrigger>
-            <TabsTrigger value="upload" className="flex items-center gap-2">
-              <FileSpreadsheet className="h-4 w-4" />
-              Upload de Arquivo
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="sheets">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Campaign Form */}
-              <div className="lg:col-span-2">
-                <CampaignForm
-                  lists={lists}
-                  templates={templates}
-                  onMessageChange={setCurrentMessage}
-                  onCampaignCreated={handleCampaignCreated}
-                />
-              </div>
-
-              {/* Preview and Status */}
-              <div className="space-y-6">
-                <MessagePreview message={currentMessage} />
-                <CampaignStatus campaign={activeCampaign} />
-              </div>
+        {isLoading ? (
+          <div className="space-y-6">
+            <SkeletonTabs />
+            <div className="mt-8">
+              <SkeletonCard />
             </div>
-          </TabsContent>
+          </div>
+        ) : (
+          <>
+            <Tabs defaultValue="sheets" className="space-y-6">
+              <TabsList className="grid w-full max-w-md grid-cols-2">
+                <TabsTrigger value="sheets" className="flex items-center gap-2">
+                  <Link className="h-4 w-4" />
+                  Via Google Sheets
+                </TabsTrigger>
+                <TabsTrigger value="upload" className="flex items-center gap-2">
+                  <FileSpreadsheet className="h-4 w-4" />
+                  Upload de Arquivo
+                </TabsTrigger>
+              </TabsList>
 
-          <TabsContent value="upload">
-            <FileUpload onCampaignCreated={handleCampaignCreated} />
-          </TabsContent>
-        </Tabs>
+              <TabsContent value="sheets">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  {/* Campaign Form */}
+                  <div className="lg:col-span-2">
+                    <CampaignForm
+                      lists={lists}
+                      templates={templates}
+                      onMessageChange={setCurrentMessage}
+                      onCampaignCreated={handleCampaignCreated}
+                    />
+                  </div>
 
-        {/* Campaign History */}
-        <div className="mt-8">
-          <CampaignHistory 
-            campaigns={campaigns} 
-            onRefresh={fetchData}
-            isLoading={isLoading}
-          />
-        </div>
+                  {/* Preview and Status */}
+                  <div className="space-y-6">
+                    <MessagePreview message={currentMessage} />
+                    <CampaignStatus campaign={activeCampaign} />
+                  </div>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="upload">
+                <FileUpload onCampaignCreated={handleCampaignCreated} />
+              </TabsContent>
+            </Tabs>
+
+            {/* Campaign History */}
+            <div className="mt-8">
+              <CampaignHistory 
+                campaigns={campaigns} 
+                onRefresh={fetchData}
+                isLoading={isLoading}
+              />
+            </div>
+          </>
+        )}
       </div>
     </AppLayout>
   );

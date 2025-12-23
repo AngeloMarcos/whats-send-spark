@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { SkeletonTableRows } from '@/components/ui/loading-skeletons';
 import { RefreshCw, Loader2, History } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -39,23 +40,29 @@ export function CampaignHistory({ campaigns, onRefresh, isLoading }: CampaignHis
         </Button>
       </CardHeader>
       <CardContent>
-        {campaigns.length === 0 ? (
-          <p className="text-center text-muted-foreground py-8">
-            Nenhuma campanha encontrada
-          </p>
-        ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Nome</TableHead>
+                <TableHead>Lista</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-center">Enviados</TableHead>
+                <TableHead className="text-center">Total</TableHead>
+                <TableHead>Criada em</TableHead>
+              </TableRow>
+            </TableHeader>
+            {isLoading ? (
+              <SkeletonTableRows rows={3} />
+            ) : campaigns.length === 0 ? (
+              <TableBody>
                 <TableRow>
-                  <TableHead>Nome</TableHead>
-                  <TableHead>Lista</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-center">Enviados</TableHead>
-                  <TableHead className="text-center">Total</TableHead>
-                  <TableHead>Criada em</TableHead>
+                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                    Nenhuma campanha encontrada
+                  </TableCell>
                 </TableRow>
-              </TableHeader>
+              </TableBody>
+            ) : (
               <TableBody>
                 {campaigns.map((campaign) => {
                   const status = statusConfig[campaign.status];
@@ -75,9 +82,9 @@ export function CampaignHistory({ campaigns, onRefresh, isLoading }: CampaignHis
                   );
                 })}
               </TableBody>
-            </Table>
-          </div>
-        )}
+            )}
+          </Table>
+        </div>
       </CardContent>
     </Card>
   );
