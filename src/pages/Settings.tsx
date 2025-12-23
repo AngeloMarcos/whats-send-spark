@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
+import { SkeletonSettingsCard } from '@/components/ui/loading-skeletons';
 import { Loader2, Save, Webhook, LogOut } from 'lucide-react';
 
 // Validate webhook URL for security (SSRF prevention)
@@ -115,8 +116,9 @@ export default function Settings() {
       
       <div className="flex-1 overflow-auto p-6">
         {isLoading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <div className="max-w-2xl space-y-6">
+            <SkeletonSettingsCard />
+            <SkeletonSettingsCard />
           </div>
         ) : (
           <div className="max-w-2xl space-y-6">
