@@ -133,7 +133,10 @@ serve(async (req) => {
       if (!response.ok) {
         const errorText = await response.text();
         console.error("Webhook error:", response.status, errorText);
-        throw new Error(`Webhook returned ${response.status}: ${errorText}`);
+        return new Response(JSON.stringify({ error: 'Failed to send campaign. Please check your webhook configuration.' }), {
+          status: 502,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
       }
 
       let result = {};
@@ -150,15 +153,21 @@ serve(async (req) => {
       });
     } catch (fetchError) {
       clearTimeout(timeoutId);
+      console.error("Fetch error:", fetchError);
       if (fetchError instanceof Error && fetchError.name === 'AbortError') {
-        throw new Error('Webhook request timed out');
+        return new Response(JSON.stringify({ error: 'Request timed out. Please try again.' }), {
+          status: 504,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
       }
-      throw fetchError;
+      return new Response(JSON.stringify({ error: 'Failed to connect to webhook. Please try again.' }), {
+        status: 502,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
   } catch (error) {
     console.error("Error:", error);
-    const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
-    return new Response(JSON.stringify({ error: errorMessage }), {
+    return new Response(JSON.stringify({ error: 'An error occurred. Please try again.' }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
