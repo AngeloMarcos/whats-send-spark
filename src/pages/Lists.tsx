@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { List, Contact } from '@/types/database';
@@ -14,8 +14,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Plus, Loader2, Trash2, Edit, Upload, Users, Eye, CheckCircle2 } from 'lucide-react';
+import { Plus, Loader2, Trash2, Edit, Upload, Users, Eye, CheckCircle2, Search, X, CheckCircle, AlertCircle, ArrowUpDown } from 'lucide-react';
 import { ListUpload, ParsedContact } from '@/components/lists/ListUpload';
 
 export default function Lists() {
@@ -39,7 +40,54 @@ export default function Lists() {
   const [viewingList, setViewingList] = useState<List | null>(null);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [isLoadingContacts, setIsLoadingContacts] = useState(false);
+  
+  // Search and filter state
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'valid' | 'invalid'>('all');
+  const [sortBy, setSortBy] = useState<'name' | 'phone' | 'created_at'>('name');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
+  // Filtered and sorted contacts
+  const filteredContacts = useMemo(() => {
+    return contacts
+      .filter(contact => {
+        // Text search filter
+        const matchesSearch = 
+          !searchTerm ||
+          contact.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          contact.phone.includes(searchTerm);
+        
+        // Status filter
+        const matchesStatus = 
+          filterStatus === 'all' ||
+          (filterStatus === 'valid' && contact.is_valid !== false) ||
+          (filterStatus === 'invalid' && contact.is_valid === false);
+        
+        return matchesSearch && matchesStatus;
+      })
+      .sort((a, b) => {
+        let comparison = 0;
+        if (sortBy === 'name') {
+          comparison = (a.name || '').localeCompare(b.name || '');
+        } else if (sortBy === 'phone') {
+          comparison = a.phone.localeCompare(b.phone);
+        } else {
+          comparison = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        }
+        return sortOrder === 'asc' ? comparison : -comparison;
+      });
+  }, [contacts, searchTerm, filterStatus, sortBy, sortOrder]);
+
+  const validCount = contacts.filter(c => c.is_valid !== false).length;
+  const invalidCount = contacts.filter(c => c.is_valid === false).length;
+  const hasActiveFilters = searchTerm || filterStatus !== 'all';
+
+  const resetFilters = () => {
+    setSearchTerm('');
+    setFilterStatus('all');
+    setSortBy('name');
+    setSortOrder('asc');
+  };
   useEffect(() => {
     if (user) fetchLists();
   }, [user]);
@@ -68,6 +116,7 @@ export default function Lists() {
   };
 
   const handleViewContacts = async (list: List) => {
+    resetFilters();
     setViewingList(list);
     await fetchContacts(list.id);
   };
@@ -375,18 +424,101 @@ export default function Lists() {
 
       {/* Contacts Viewer Sheet */}
       <Sheet open={!!viewingList} onOpenChange={(open) => !open && setViewingList(null)}>
-        <SheetContent className="w-full sm:max-w-xl">
+        <SheetContent className="w-full sm:max-w-2xl">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <Users className="h-5 w-5" />
               {viewingList?.name}
             </SheetTitle>
-            <SheetDescription>
-              {viewingList?.contact_count} contatos salvos
+            <SheetDescription className="flex items-center gap-3">
+              <span>{contacts.length} contatos</span>
+              <span className="flex items-center gap-1 text-green-600">
+                <CheckCircle className="h-3 w-3" />
+                {validCount} válidos
+              </span>
+              <span className="flex items-center gap-1 text-amber-600">
+                <AlertCircle className="h-3 w-3" />
+                {invalidCount} inválidos
+              </span>
             </SheetDescription>
           </SheetHeader>
           
-          <div className="mt-6">
+          <div className="mt-4 space-y-4">
+            {/* Search and Filters */}
+            <div className="space-y-3">
+              {/* Search Input */}
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar por nome ou telefone..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-9 pr-9"
+                />
+                {searchTerm && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
+                    onClick={() => setSearchTerm('')}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                )}
+              </div>
+              
+              {/* Filter Row */}
+              <div className="flex flex-wrap gap-2">
+                <Select value={filterStatus} onValueChange={(v) => setFilterStatus(v as typeof filterStatus)}>
+                  <SelectTrigger className="w-[130px]">
+                    <SelectValue placeholder="Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos</SelectItem>
+                    <SelectItem value="valid">✓ Válidos</SelectItem>
+                    <SelectItem value="invalid">⚠ Inválidos</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                <Select value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>
+                  <SelectTrigger className="w-[140px]">
+                    <ArrowUpDown className="h-3 w-3 mr-2" />
+                    <SelectValue placeholder="Ordenar" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="name">Nome</SelectItem>
+                    <SelectItem value="phone">Telefone</SelectItem>
+                    <SelectItem value="created_at">Data</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                <Select value={sortOrder} onValueChange={(v) => setSortOrder(v as typeof sortOrder)}>
+                  <SelectTrigger className="w-[100px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="asc">A-Z ↑</SelectItem>
+                    <SelectItem value="desc">Z-A ↓</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                {hasActiveFilters && (
+                  <Button variant="ghost" size="sm" onClick={resetFilters} className="text-muted-foreground">
+                    <X className="h-3 w-3 mr-1" />
+                    Limpar
+                  </Button>
+                )}
+              </div>
+
+              {/* Results Counter */}
+              {hasActiveFilters && (
+                <p className="text-sm text-muted-foreground">
+                  Mostrando {filteredContacts.length} de {contacts.length} contatos
+                </p>
+              )}
+            </div>
+
+            {/* Contacts Table */}
             {isLoadingContacts ? (
               <div className="flex items-center justify-center py-12">
                 <Loader2 className="h-6 w-6 animate-spin text-primary" />
@@ -396,24 +528,40 @@ export default function Lists() {
                 <Users className="h-10 w-10 mx-auto mb-3 opacity-50" />
                 <p>Nenhum contato encontrado</p>
               </div>
+            ) : filteredContacts.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground">
+                <Search className="h-10 w-10 mx-auto mb-3 opacity-50" />
+                <p>Nenhum contato corresponde aos filtros</p>
+                <Button variant="link" onClick={resetFilters} className="mt-2">
+                  Limpar filtros
+                </Button>
+              </div>
             ) : (
-              <ScrollArea className="h-[calc(100vh-200px)]">
+              <ScrollArea className="h-[calc(100vh-320px)]">
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Nome</TableHead>
                       <TableHead>Telefone</TableHead>
+                      <TableHead className="w-16 text-center">Status</TableHead>
                       <TableHead className="w-10"></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {contacts.map((contact) => (
+                    {filteredContacts.map((contact) => (
                       <TableRow key={contact.id}>
                         <TableCell className="font-medium">
                           {contact.name || '-'}
                         </TableCell>
                         <TableCell className="font-mono text-sm">
                           {contact.phone}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          {contact.is_valid !== false ? (
+                            <CheckCircle className="h-4 w-4 text-green-600 mx-auto" />
+                          ) : (
+                            <AlertCircle className="h-4 w-4 text-amber-600 mx-auto" />
+                          )}
                         </TableCell>
                         <TableCell>
                           <Button
