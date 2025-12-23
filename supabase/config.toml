@@ -8,3 +8,6 @@ verify_jwt = true
 
 [functions.send-bulk-campaign]
 verify_jwt = true
+
+[functions.process-queue]
+verify_jwt = true

@@ -13,7 +13,9 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
-import { sendBulkCampaign, ContactRow } from '@/services/bulkSender';
+import { ContactRow } from '@/services/bulkSender';
+import { useQueueDispatcher } from '@/hooks/useQueueDispatcher';
+import { QueueDispatcher } from './QueueDispatcher';
 import { 
   validateContacts, 
   applyAutoCorrection, 
@@ -69,6 +71,9 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
   const [sendStatus, setSendStatus] = useState<SendStatus>('idle');
   const [sendResult, setSendResult] = useState<SendResult | null>(null);
   
+  // Queue dispatcher hook
+  const queueDispatcher = useQueueDispatcher();
+
   const [formData, setFormData] = useState({
     campaignName: '',
     message: '',
@@ -79,6 +84,7 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
     aiPrompt: '',
     saveAsList: false,
     listName: '',
+    useQueueMode: true, // Default to queue mode
   });
 
   // Validate phones whenever rows or phoneColumn changes
@@ -166,9 +172,11 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
       aiPrompt: '',
       saveAsList: false,
       listName: '',
+      useQueueMode: true,
     });
     setSendStatus('idle');
     setSendResult(null);
+    queueDispatcher.reset();
   };
 
   const handleAutoCorrect = () => {
@@ -235,40 +243,11 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleStartQueueDispatch = async (intervalMinutes: number) => {
     if (!user) return;
-
-    if (!formData.campaignName || !formData.message || rows.length === 0) {
-      toast({
-        title: 'Campos obrigatórios',
-        description: 'Preencha o nome da campanha, importe um arquivo e escreva a mensagem',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    if (!phoneColumn) {
-      toast({
-        title: 'Selecione a coluna de telefone',
-        description: 'Indique qual coluna contém os números de WhatsApp',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    // Warn if there are invalid phones
-    if (validationResult && validationResult.summary.invalidCount > 0) {
-      toast({
-        title: 'Atenção: números inválidos',
-        description: `${validationResult.summary.invalidCount} contatos têm números inválidos e não receberão mensagens`,
-        variant: 'destructive',
-      });
-    }
 
     setIsSubmitting(true);
     setSendStatus('loading');
-    setSendResult(null);
 
     try {
       // Get only valid contacts
@@ -338,7 +317,7 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
         });
       }
 
-      // Create campaign in database first
+      // Create campaign in database
       const { data: campaign, error: campaignError } = await supabase
         .from('campaigns')
         .insert({
@@ -346,56 +325,31 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
           name: formData.campaignName,
           message: formData.message,
           list_id: listId,
-          status: formData.sendNow ? 'sending' : 'scheduled',
-          send_now: formData.sendNow,
-          scheduled_at: formData.scheduledAt || null,
+          status: 'sending',
+          send_now: true,
+          scheduled_at: null,
           send_limit: sendLimit,
           contacts_total: contactsToProcess.length,
+          send_interval_minutes: intervalMinutes,
         })
         .select()
         .single();
 
       if (campaignError) throw campaignError;
 
-      // Get user's webhook URL from settings
-      const { data: settings, error: settingsError } = await supabase
-        .from('settings')
-        .select('n8n_webhook_url')
-        .eq('user_id', user.id)
-        .single();
+      // Initialize queue dispatcher
+      const success = await queueDispatcher.initializeQueue(
+        campaign.id,
+        contactsToProcess,
+        intervalMinutes
+      );
 
-      if (settingsError || !settings?.n8n_webhook_url) {
-        throw new Error('Configure o URL do webhook nas Configurações antes de enviar campanhas');
+      if (success) {
+        setSendStatus('success');
+        onCampaignCreated(campaign as Campaign);
+      } else {
+        throw new Error('Falha ao inicializar fila');
       }
-
-      // Send via secure Edge Function (validates URL server-side)
-      const response = await sendBulkCampaign({
-        campaignId: campaign.id,
-        webhookUrl: settings.n8n_webhook_url,
-        contacts: contactsToProcess,
-        message: formData.message,
-        sendNow: formData.sendNow,
-        scheduledAt: formData.scheduledAt || null,
-        sendLimit,
-      });
-
-      // Update campaign with execution info if returned
-      if (response?.executionId) {
-        await supabase
-          .from('campaigns')
-          .update({ execution_id: response.executionId })
-          .eq('id', campaign.id);
-      }
-
-      // Set success state
-      setSendStatus('success');
-      setSendResult({
-        contactsSent: response?.contactsSent || contactsToProcess.length,
-        campaignName: formData.campaignName,
-        n8nResponse: response,
-      });
-      
-      onCampaignCreated(campaign as Campaign);
 
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
@@ -406,7 +360,7 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
         error: errorMessage,
       });
       toast({
-        title: 'Erro ao enviar para n8n',
+        title: 'Erro ao iniciar disparo',
         description: errorMessage,
         variant: 'destructive',
       });
@@ -431,6 +385,9 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
   const invalidCount = validationResult?.summary.invalidCount ?? 0;
   const fixableCount = validationResult?.summary.fixableCount ?? 0;
 
+  // Check if queue is active
+  const isQueueActive = queueDispatcher.isRunning || queueDispatcher.sentCount > 0 || queueDispatcher.failedCount > 0;
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       {/* Form Column */}
@@ -445,33 +402,36 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {/* Send Result Feedback */}
-          {sendStatus === 'success' && sendResult && (
-            <Alert className="border-emerald-500/50 bg-emerald-500/10 mb-6">
-              <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-              <AlertTitle className="text-emerald-700 dark:text-emerald-400">
-                Disparo iniciado com sucesso!
-              </AlertTitle>
-              <AlertDescription className="space-y-2">
-                <p>Contatos enviados: <strong>{sendResult.contactsSent}</strong></p>
-                <p>Campanha: <strong>{sendResult.campaignName}</strong></p>
-                {sendResult.n8nResponse?.sent && (
-                  <p>Processados pelo n8n: <strong>{sendResult.n8nResponse.sent}</strong></p>
-                )}
+          {/* Queue Dispatcher UI - Show when queue is active */}
+          {isQueueActive && (
+            <div className="mb-6">
+              <QueueDispatcher
+                state={queueDispatcher}
+                progress={queueDispatcher.progress}
+                secondsUntilNext={queueDispatcher.secondsUntilNext}
+                remainingCount={queueDispatcher.remainingCount}
+                onStart={handleStartQueueDispatch}
+                onPause={queueDispatcher.pause}
+                onResume={queueDispatcher.resume}
+                onCancel={queueDispatcher.cancel}
+                totalContacts={validCount > 0 ? validCount : rows.length}
+              />
+              
+              {!queueDispatcher.isRunning && (queueDispatcher.sentCount > 0 || queueDispatcher.failedCount > 0) && (
                 <Button 
                   onClick={resetForm} 
                   variant="outline" 
-                  size="sm" 
-                  className="mt-3"
+                  className="w-full mt-4"
                 >
                   <RotateCcw className="h-4 w-4 mr-2" />
                   Novo Disparo
                 </Button>
-              </AlertDescription>
-            </Alert>
+              )}
+            </div>
           )}
 
-          {sendStatus === 'error' && sendResult && (
+          {/* Send Result Feedback */}
+          {sendStatus === 'error' && sendResult && !isQueueActive && (
             <Alert className="border-red-500/50 bg-red-500/10 mb-6">
               <XCircle className="h-5 w-5 text-red-500" />
               <AlertTitle className="text-red-700 dark:text-red-400">
@@ -492,301 +452,274 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
             </Alert>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {/* File Upload */}
-            <div className="space-y-2">
-              <Label>Arquivo de Contatos *</Label>
-              {fileName ? (
-                <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg border">
-                  <FileSpreadsheet className="h-5 w-5 text-primary" />
-                  <span className="flex-1 truncate text-sm">{fileName}</span>
-                  <span className="text-xs text-muted-foreground">{rows.length} contatos</span>
-                  <Button type="button" variant="ghost" size="icon" onClick={clearFile}>
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-              ) : (
-                <div className="relative">
-                  <input
-                    type="file"
-                    accept=".xlsx,.xls,.csv"
-                    onChange={handleFileChange}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                  />
-                  <div className="flex items-center justify-center gap-2 p-6 border-2 border-dashed rounded-lg hover:border-primary/50 transition-colors">
-                    <Upload className="h-5 w-5 text-muted-foreground" />
-                    <span className="text-sm text-muted-foreground">
-                      Clique ou arraste um arquivo .xlsx, .xls ou .csv
-                    </span>
+          {/* Hide form when queue is active */}
+          {!isQueueActive && (
+            <form onSubmit={(e) => e.preventDefault()} className="space-y-4">
+              {/* File Upload */}
+              <div className="space-y-2">
+                <Label>Arquivo de Contatos *</Label>
+                {fileName ? (
+                  <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg border">
+                    <FileSpreadsheet className="h-5 w-5 text-primary" />
+                    <span className="flex-1 truncate text-sm">{fileName}</span>
+                    <span className="text-xs text-muted-foreground">{rows.length} contatos</span>
+                    <Button type="button" variant="ghost" size="icon" onClick={clearFile}>
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <input
+                      type="file"
+                      accept=".xlsx,.xls,.csv"
+                      onChange={handleFileChange}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    />
+                    <div className="flex items-center justify-center gap-2 p-6 border-2 border-dashed rounded-lg hover:border-primary/50 transition-colors">
+                      <Upload className="h-5 w-5 text-muted-foreground" />
+                      <span className="text-sm text-muted-foreground">
+                        Clique ou arraste um arquivo .xlsx, .xls ou .csv
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Column Selection */}
+              {headers.length > 0 && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Coluna de Telefone *</Label>
+                    <Select value={phoneColumn} onValueChange={setPhoneColumn}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecione" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {headers.map((h) => (
+                          <SelectItem key={h} value={h}>{h}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Coluna de Nome</Label>
+                    <Select value={nameColumn || "none"} onValueChange={(v) => setNameColumn(v === "none" ? "" : v)}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="(opcional)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">(nenhuma)</SelectItem>
+                        {headers.map((h) => (
+                          <SelectItem key={h} value={h}>{h}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
               )}
-            </div>
 
-            {/* Column Selection */}
-            {headers.length > 0 && (
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Coluna de Telefone *</Label>
-                  <Select value={phoneColumn} onValueChange={setPhoneColumn}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecione" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {headers.map((h) => (
-                        <SelectItem key={h} value={h}>{h}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Coluna de Nome</Label>
-                  <Select value={nameColumn || "none"} onValueChange={(v) => setNameColumn(v === "none" ? "" : v)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="(opcional)" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">(nenhuma)</SelectItem>
-                      {headers.map((h) => (
-                        <SelectItem key={h} value={h}>{h}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            )}
-
-            {/* Validation Summary */}
-            {validationResult && rows.length > 0 && (
-              <Alert className={invalidCount > 0 ? 'border-amber-500/50 bg-amber-500/10' : 'border-emerald-500/50 bg-emerald-500/10'}>
-                <div className="flex items-start gap-3">
-                  {invalidCount > 0 ? (
-                    <AlertTriangle className="h-5 w-5 text-amber-500 mt-0.5" />
-                  ) : (
-                    <CheckCircle2 className="h-5 w-5 text-emerald-500 mt-0.5" />
-                  )}
-                  <div className="flex-1">
-                    <AlertTitle className="mb-2">
-                      Validação de Telefones
-                    </AlertTitle>
-                    <AlertDescription className="space-y-3">
-                      <div className="flex flex-wrap gap-2">
-                        <Badge variant="outline" className="bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border-emerald-500/30">
-                          <CheckCircle2 className="h-3 w-3 mr-1" />
-                          {validCount} válidos
-                        </Badge>
-                        {invalidCount > 0 && (
-                          <Badge variant="outline" className="bg-red-500/20 text-red-700 dark:text-red-400 border-red-500/30">
-                            <XCircle className="h-3 w-3 mr-1" />
-                            {invalidCount} inválidos
+              {/* Validation Summary */}
+              {validationResult && rows.length > 0 && (
+                <Alert className={invalidCount > 0 ? 'border-amber-500/50 bg-amber-500/10' : 'border-emerald-500/50 bg-emerald-500/10'}>
+                  <div className="flex items-start gap-3">
+                    {invalidCount > 0 ? (
+                      <AlertTriangle className="h-5 w-5 text-amber-500 mt-0.5" />
+                    ) : (
+                      <CheckCircle2 className="h-5 w-5 text-emerald-500 mt-0.5" />
+                    )}
+                    <div className="flex-1">
+                      <AlertTitle className="mb-2">
+                        Validação de Telefones
+                      </AlertTitle>
+                      <AlertDescription className="space-y-3">
+                        <div className="flex flex-wrap gap-2">
+                          <Badge variant="outline" className="bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border-emerald-500/30">
+                            <CheckCircle2 className="h-3 w-3 mr-1" />
+                            {validCount} válidos
                           </Badge>
-                        )}
-                        {fixableCount > 0 && (
-                          <Badge variant="outline" className="bg-amber-500/20 text-amber-700 dark:text-amber-400 border-amber-500/30">
-                            <Wrench className="h-3 w-3 mr-1" />
-                            {fixableCount} corrigíveis
-                          </Badge>
-                        )}
-                      </div>
-                      
-                      {invalidCount > 0 && (
-                        <div className="flex flex-wrap gap-2 pt-1">
+                          {invalidCount > 0 && (
+                            <Badge variant="outline" className="bg-red-500/20 text-red-700 dark:text-red-400 border-red-500/30">
+                              <XCircle className="h-3 w-3 mr-1" />
+                              {invalidCount} inválidos
+                            </Badge>
+                          )}
                           {fixableCount > 0 && (
+                            <Badge variant="outline" className="bg-amber-500/20 text-amber-700 dark:text-amber-400 border-amber-500/30">
+                              <Wrench className="h-3 w-3 mr-1" />
+                              {fixableCount} corrigíveis
+                            </Badge>
+                          )}
+                        </div>
+                        
+                        {invalidCount > 0 && (
+                          <div className="flex flex-wrap gap-2 pt-1">
+                            {fixableCount > 0 && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={handleAutoCorrect}
+                                className="h-7 text-xs"
+                              >
+                                <Wrench className="h-3 w-3 mr-1" />
+                                Corrigir automaticamente
+                              </Button>
+                            )}
                             <Button
                               type="button"
                               variant="outline"
                               size="sm"
-                              onClick={handleAutoCorrect}
+                              onClick={handleRemoveInvalid}
                               className="h-7 text-xs"
                             >
-                              <Wrench className="h-3 w-3 mr-1" />
-                              Corrigir automaticamente
+                              <X className="h-3 w-3 mr-1" />
+                              Remover inválidos
                             </Button>
-                          )}
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={handleRemoveInvalid}
-                            className="h-7 text-xs"
-                          >
-                            <X className="h-3 w-3 mr-1" />
-                            Remover inválidos
-                          </Button>
-                        </div>
-                      )}
-                    </AlertDescription>
+                          </div>
+                        )}
+                      </AlertDescription>
+                    </div>
                   </div>
-                </div>
-              </Alert>
-            )}
+                </Alert>
+              )}
 
-            {/* Campaign Name */}
-            <div className="space-y-2">
-              <Label htmlFor="campaignName">Nome da Campanha *</Label>
-              <Input
-                id="campaignName"
-                value={formData.campaignName}
-                onChange={(e) => setFormData({ ...formData, campaignName: e.target.value })}
-                placeholder="Ex: Promoção Dezembro"
-              />
-            </div>
-
-            {/* AI Generation Toggle */}
-            <div className="flex items-center justify-between rounded-lg border p-4">
-              <div className="flex items-center gap-3">
-                <Sparkles className="h-5 w-5 text-primary" />
-                <div>
-                  <Label>Gerar mensagem com IA</Label>
-                  <p className="text-xs text-muted-foreground">Use IA para criar a mensagem</p>
-                </div>
-              </div>
-              <Switch
-                checked={formData.useAi}
-                onCheckedChange={(checked) => setFormData({ ...formData, useAi: checked })}
-              />
-            </div>
-
-            {/* AI Prompt */}
-            {formData.useAi && (
+              {/* Campaign Name */}
               <div className="space-y-2">
-                <Label htmlFor="aiPrompt">Descreva a mensagem que você quer</Label>
-                <Textarea
-                  id="aiPrompt"
-                  value={formData.aiPrompt}
-                  onChange={(e) => setFormData({ ...formData, aiPrompt: e.target.value })}
-                  placeholder="Ex: Uma mensagem de promoção de Natal para clientes"
-                  rows={3}
+                <Label htmlFor="campaignName">Nome da Campanha *</Label>
+                <Input
+                  id="campaignName"
+                  value={formData.campaignName}
+                  onChange={(e) => setFormData({ ...formData, campaignName: e.target.value })}
+                  placeholder="Ex: Promoção Dezembro"
                 />
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={generateAIMessage}
-                  disabled={isGenerating}
-                >
-                  {isGenerating ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Gerando...
-                    </>
-                  ) : (
-                    <>
-                      <Wand2 className="mr-2 h-4 w-4" />
-                      Gerar Mensagem
-                    </>
-                  )}
-                </Button>
               </div>
-            )}
 
-            {/* Message */}
-            <div className="space-y-2">
-              <Label htmlFor="message">Mensagem *</Label>
-              <Textarea
-                id="message"
-                value={formData.message}
-                onChange={(e) => setFormData({ ...formData, message: e.target.value })}
-                placeholder="Digite a mensagem. Use {{nome}} para personalizar."
-                rows={4}
-              />
-              <p className="text-xs text-muted-foreground">
-                Placeholders: {"{{nome}}"}, {"{{telefone}}"}
-              </p>
-            </div>
-
-            {/* Save as List Option */}
-            {rows.length > 0 && (
-              <div className="space-y-3 rounded-lg border p-4 bg-muted/30">
-                <div className="flex items-center space-x-3">
-                  <Checkbox
-                    id="saveAsList"
-                    checked={formData.saveAsList}
-                    onCheckedChange={(checked) => 
-                      setFormData({ ...formData, saveAsList: checked === true })
-                    }
-                  />
-                  <div className="flex items-center gap-2">
-                    <Save className="h-4 w-4 text-primary" />
-                    <Label htmlFor="saveAsList" className="cursor-pointer">
-                      Salvar contatos como nova lista
-                    </Label>
+              {/* AI Generation Toggle */}
+              <div className="flex items-center justify-between rounded-lg border p-4">
+                <div className="flex items-center gap-3">
+                  <Sparkles className="h-5 w-5 text-primary" />
+                  <div>
+                    <Label>Gerar mensagem com IA</Label>
+                    <p className="text-xs text-muted-foreground">Use IA para criar a mensagem</p>
                   </div>
                 </div>
-                {formData.saveAsList && (
-                  <div className="space-y-2 pl-6">
-                    <Label htmlFor="listName">Nome da Lista *</Label>
-                    <Input
-                      id="listName"
-                      value={formData.listName}
-                      onChange={(e) => setFormData({ ...formData, listName: e.target.value })}
-                      placeholder="Ex: Leads Dezembro 2024"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Salve para reutilizar em futuras campanhas
-                    </p>
-                  </div>
-                )}
+                <Switch
+                  checked={formData.useAi}
+                  onCheckedChange={(checked) => setFormData({ ...formData, useAi: checked })}
+                />
               </div>
-            )}
 
-            {/* Scheduling */}
-            <div className="flex items-center justify-between rounded-lg border p-4">
-              <div>
-                <Label>Enviar agora</Label>
+              {/* AI Prompt */}
+              {formData.useAi && (
+                <div className="space-y-2">
+                  <Label htmlFor="aiPrompt">Descreva a mensagem que você quer</Label>
+                  <Textarea
+                    id="aiPrompt"
+                    value={formData.aiPrompt}
+                    onChange={(e) => setFormData({ ...formData, aiPrompt: e.target.value })}
+                    placeholder="Ex: Uma mensagem de promoção de Natal para clientes"
+                    rows={3}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={generateAIMessage}
+                    disabled={isGenerating}
+                  >
+                    {isGenerating ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Gerando...
+                      </>
+                    ) : (
+                      <>
+                        <Wand2 className="mr-2 h-4 w-4" />
+                        Gerar Mensagem
+                      </>
+                    )}
+                  </Button>
+                </div>
+              )}
+
+              {/* Message */}
+              <div className="space-y-2">
+                <Label htmlFor="message">Mensagem *</Label>
+                <Textarea
+                  id="message"
+                  value={formData.message}
+                  onChange={(e) => setFormData({ ...formData, message: e.target.value })}
+                  placeholder="Digite a mensagem. Use {{nome}} para personalizar."
+                  rows={4}
+                />
                 <p className="text-xs text-muted-foreground">
-                  {formData.sendNow ? 'Envio imediato' : 'Agendar envio'}
+                  Placeholders: {"{{nome}}"}, {"{{telefone}}"}
                 </p>
               </div>
-              <Switch
-                checked={formData.sendNow}
-                onCheckedChange={(checked) => setFormData({ ...formData, sendNow: checked })}
-              />
-            </div>
 
-            {!formData.sendNow && (
+              {/* Save as List Option */}
+              {rows.length > 0 && (
+                <div className="space-y-3 rounded-lg border p-4 bg-muted/30">
+                  <div className="flex items-center space-x-3">
+                    <Checkbox
+                      id="saveAsList"
+                      checked={formData.saveAsList}
+                      onCheckedChange={(checked) => 
+                        setFormData({ ...formData, saveAsList: checked === true })
+                      }
+                    />
+                    <div className="flex items-center gap-2">
+                      <Save className="h-4 w-4 text-primary" />
+                      <Label htmlFor="saveAsList" className="cursor-pointer">
+                        Salvar contatos como nova lista
+                      </Label>
+                    </div>
+                  </div>
+                  {formData.saveAsList && (
+                    <div className="space-y-2 pl-6">
+                      <Label htmlFor="listName">Nome da Lista *</Label>
+                      <Input
+                        id="listName"
+                        value={formData.listName}
+                        onChange={(e) => setFormData({ ...formData, listName: e.target.value })}
+                        placeholder="Ex: Leads Dezembro 2024"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Salve para reutilizar em futuras campanhas
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Send Limit */}
               <div className="space-y-2">
-                <Label htmlFor="scheduledAt">Data e Hora</Label>
+                <Label htmlFor="sendLimit">Limite de Envios</Label>
                 <Input
-                  id="scheduledAt"
-                  type="datetime-local"
-                  value={formData.scheduledAt}
-                  onChange={(e) => setFormData({ ...formData, scheduledAt: e.target.value })}
+                  id="sendLimit"
+                  type="number"
+                  value={formData.sendLimit}
+                  onChange={(e) => setFormData({ ...formData, sendLimit: e.target.value })}
+                  placeholder="Sem limite"
                 />
               </div>
-            )}
 
-            {/* Send Limit */}
-            <div className="space-y-2">
-              <Label htmlFor="sendLimit">Limite de Envios</Label>
-              <Input
-                id="sendLimit"
-                type="number"
-                value={formData.sendLimit}
-                onChange={(e) => setFormData({ ...formData, sendLimit: e.target.value })}
-                placeholder="Sem limite"
-              />
-            </div>
-
-            {/* Submit */}
-            <Button 
-              type="submit" 
-              className="w-full" 
-              size="lg" 
-              disabled={isSubmitting || rows.length === 0 || sendStatus === 'success'}
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Enviando lista para n8n...
-                </>
-              ) : (
-                <>
-                  <Send className="mr-2 h-4 w-4" />
-                  Iniciar Disparo ({validCount > 0 ? validCount : rows.length} contatos)
-                </>
+              {/* Queue Dispatcher - Configuration UI */}
+              {rows.length > 0 && formData.campaignName && formData.message && (
+                <QueueDispatcher
+                  state={queueDispatcher}
+                  progress={queueDispatcher.progress}
+                  secondsUntilNext={queueDispatcher.secondsUntilNext}
+                  remainingCount={queueDispatcher.remainingCount}
+                  onStart={handleStartQueueDispatch}
+                  onPause={queueDispatcher.pause}
+                  onResume={queueDispatcher.resume}
+                  onCancel={queueDispatcher.cancel}
+                  totalContacts={validCount > 0 ? validCount : rows.length}
+                  disabled={isSubmitting || !formData.campaignName || !formData.message}
+                />
               )}
-            </Button>
-          </form>
+            </form>
+          )}
         </CardContent>
       </Card>
 
