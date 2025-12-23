@@ -6,7 +6,7 @@ export interface QueueItem {
   id: string;
   contact_name: string | null;
   contact_phone: string;
-  status: 'pending' | 'sent' | 'error';
+  status: 'pending' | 'sent' | 'error' | 'excluded';
   error_message?: string;
   sent_at?: string;
 }
@@ -17,6 +17,7 @@ export interface DispatcherState {
   currentContact: QueueItem | null;
   sentCount: number;
   failedCount: number;
+  excludedCount: number;
   totalContacts: number;
   isRunning: boolean;
   isPaused: boolean;
@@ -32,6 +33,7 @@ const INITIAL_STATE: DispatcherState = {
   currentContact: null,
   sentCount: 0,
   failedCount: 0,
+  excludedCount: 0,
   totalContacts: 0,
   isRunning: false,
   isPaused: false,
@@ -47,15 +49,62 @@ export const useQueueDispatcher = () => {
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Check for duplicate contacts already sent in previous campaigns
+  const checkDuplicates = useCallback(async (phones: string[]): Promise<Set<string>> => {
+    try {
+      const { data } = await supabase
+        .from('campaign_queue')
+        .select('contact_phone')
+        .in('contact_phone', phones)
+        .eq('status', 'sent');
+      
+      return new Set(data?.map(d => d.contact_phone) || []);
+    } catch (error) {
+      console.error('Error checking duplicates:', error);
+      return new Set();
+    }
+  }, []);
+
   // Initialize queue for a campaign
   const initializeQueue = useCallback(async (
     campaignId: string,
     contacts: Array<{ name?: string; phone: string; [key: string]: unknown }>,
-    intervalMinutes: number
+    intervalMinutes: number,
+    skipDuplicates: boolean = true
   ) => {
     try {
+      let contactsToSend = contacts;
+      let excludedCount = 0;
+
+      // Check for duplicates if enabled
+      if (skipDuplicates) {
+        const phones = contacts.map(c => c.phone);
+        const alreadySent = await checkDuplicates(phones);
+        
+        if (alreadySent.size > 0) {
+          contactsToSend = contacts.filter(c => !alreadySent.has(c.phone));
+          excludedCount = contacts.length - contactsToSend.length;
+          
+          if (excludedCount > 0) {
+            toast({
+              title: 'Duplicatas encontradas',
+              description: `${excludedCount} contatos já foram enviados anteriormente e serão ignorados.`,
+            });
+          }
+        }
+      }
+
+      if (contactsToSend.length === 0) {
+        toast({
+          title: 'Nenhum contato para enviar',
+          description: 'Todos os contatos já foram enviados em campanhas anteriores.',
+          variant: 'destructive',
+        });
+        return false;
+      }
+
       // Insert contacts into campaign_queue
-      const queueItems = contacts.map((contact) => ({
+      const queueItems = contactsToSend.map((contact) => ({
         campaign_id: campaignId,
         contact_name: contact.name || null,
         contact_phone: contact.phone,
@@ -79,14 +128,16 @@ export const useQueueDispatcher = () => {
         .from('campaigns')
         .update({ 
           send_interval_minutes: intervalMinutes,
-          status: 'sending'
+          status: 'sending',
+          contacts_total: contactsToSend.length,
         })
         .eq('id', campaignId);
 
       setState({
         ...INITIAL_STATE,
         campaignId,
-        totalContacts: contacts.length,
+        totalContacts: contactsToSend.length,
+        excludedCount,
         intervalMinutes,
         isRunning: true,
         queue: queueItems.map((item, idx) => ({
@@ -107,7 +158,7 @@ export const useQueueDispatcher = () => {
       });
       return false;
     }
-  }, [toast]);
+  }, [toast, checkDuplicates]);
 
   // Process next contact in queue
   const processNext = useCallback(async () => {
@@ -330,6 +381,38 @@ export const useQueueDispatcher = () => {
     setState(INITIAL_STATE);
   }, []);
 
+  // Exclude contact from queue
+  const excludeContact = useCallback(async (queueItemId: string) => {
+    try {
+      // Update status in database
+      const { error } = await supabase
+        .from('campaign_queue')
+        .update({ status: 'excluded' })
+        .eq('id', queueItemId);
+
+      if (error) throw error;
+
+      // Update local state
+      setState(prev => ({
+        ...prev,
+        queue: prev.queue.filter(q => q.id !== queueItemId),
+        excludedCount: prev.excludedCount + 1,
+      }));
+
+      toast({
+        title: 'Contato excluído',
+        description: 'O contato foi removido da fila de envio.',
+      });
+    } catch (error) {
+      console.error('Error excluding contact:', error);
+      toast({
+        title: 'Erro ao excluir contato',
+        description: error instanceof Error ? error.message : 'Erro desconhecido',
+        variant: 'destructive',
+      });
+    }
+  }, [toast]);
+
   // Calculate progress
   const progress = state.totalContacts > 0
     ? Math.round(((state.sentCount + state.failedCount) / state.totalContacts) * 100)
@@ -349,6 +432,7 @@ export const useQueueDispatcher = () => {
     resume,
     cancel,
     reset,
+    excludeContact,
     remainingCount: state.queue.length,
   };
 };
