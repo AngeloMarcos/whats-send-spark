@@ -15,7 +15,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
-import { Plus, Loader2, Trash2, Edit, FileSpreadsheet, Upload, Users, Eye } from 'lucide-react';
+import { Plus, Loader2, Trash2, Edit, Upload, Users, Eye, CheckCircle2 } from 'lucide-react';
+import { ListUpload, ParsedContact } from '@/components/lists/ListUpload';
 
 export default function Lists() {
   const { user } = useAuth();
@@ -26,12 +27,13 @@ export default function Lists() {
   const [editingList, setEditingList] = useState<List | null>(null);
   const [formData, setFormData] = useState({
     name: '',
-    sheet_id: '',
-    sheet_tab_id: '',
     description: '',
-    contact_count: 0,
   });
   const [isSaving, setIsSaving] = useState(false);
+  
+  // Upload state
+  const [uploadedContacts, setUploadedContacts] = useState<ParsedContact[]>([]);
+  const [hasUploadedFile, setHasUploadedFile] = useState(false);
   
   // Contacts viewer state
   const [viewingList, setViewingList] = useState<List | null>(null);
@@ -66,13 +68,6 @@ export default function Lists() {
   };
 
   const handleViewContacts = async (list: List) => {
-    if (list.list_type !== 'local') {
-      toast({
-        title: 'Lista do Google Sheets',
-        description: 'Esta lista é gerenciada pelo Google Sheets',
-      });
-      return;
-    }
     setViewingList(list);
     await fetchContacts(list.id);
   };
@@ -85,9 +80,19 @@ export default function Lists() {
       toast({ title: 'Contato excluído!' });
       if (viewingList) {
         await fetchContacts(viewingList.id);
-        await fetchLists(); // Refresh contact count
+        await fetchLists();
       }
     }
+  };
+
+  const handleDataReady = (data: { contacts: ParsedContact[] }) => {
+    setUploadedContacts(data.contacts);
+    setHasUploadedFile(true);
+  };
+
+  const handleClearUpload = () => {
+    setUploadedContacts([]);
+    setHasUploadedFile(false);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -97,38 +102,74 @@ export default function Lists() {
     setIsSaving(true);
     try {
       if (editingList) {
-        const updateData: Record<string, unknown> = {
-          name: formData.name,
-          description: formData.description || null,
-        };
-        
-        // Only update sheet fields for google_sheets type
-        if (editingList.list_type === 'google_sheets') {
-          updateData.sheet_id = formData.sheet_id;
-          updateData.sheet_tab_id = formData.sheet_tab_id || null;
-          updateData.contact_count = formData.contact_count;
-        }
-
+        // Editing existing list - only update name/description
         const { error } = await supabase
           .from('lists')
-          .update(updateData)
+          .update({
+            name: formData.name,
+            description: formData.description || null,
+          })
           .eq('id', editingList.id);
 
         if (error) throw error;
         toast({ title: 'Lista atualizada com sucesso!' });
       } else {
-        const { error } = await supabase.from('lists').insert({
-          user_id: user.id,
-          name: formData.name,
-          list_type: 'google_sheets',
-          sheet_id: formData.sheet_id,
-          sheet_tab_id: formData.sheet_tab_id || null,
-          description: formData.description || null,
-          contact_count: formData.contact_count,
-        });
+        // Creating new list with uploaded contacts
+        if (!hasUploadedFile || uploadedContacts.length === 0) {
+          toast({ 
+            title: 'Arquivo necessário', 
+            description: 'Faça upload de uma planilha com contatos',
+            variant: 'destructive' 
+          });
+          setIsSaving(false);
+          return;
+        }
 
-        if (error) throw error;
-        toast({ title: 'Lista criada com sucesso!' });
+        // 1. Create the list
+        const { data: newList, error: listError } = await supabase
+          .from('lists')
+          .insert({
+            user_id: user.id,
+            name: formData.name,
+            list_type: 'local',
+            description: formData.description || null,
+            contact_count: 0, // Will be updated by trigger
+          })
+          .select()
+          .single();
+
+        if (listError) throw listError;
+
+        // 2. Insert contacts in batches
+        const BATCH_SIZE = 100;
+        let insertedCount = 0;
+
+        for (let i = 0; i < uploadedContacts.length; i += BATCH_SIZE) {
+          const batch = uploadedContacts.slice(i, i + BATCH_SIZE).map(c => ({
+            user_id: user.id,
+            list_id: newList.id,
+            phone: c.phone,
+            name: c.name || null,
+            extra_data: c.extra_data as unknown as Record<string, never>,
+            is_valid: c.is_valid,
+          }));
+
+          const { error: contactsError } = await supabase
+            .from('contacts')
+            .insert(batch);
+
+          if (contactsError) {
+            console.error('Batch insert error:', contactsError);
+            // Continue with other batches
+          } else {
+            insertedCount += batch.length;
+          }
+        }
+
+        toast({ 
+          title: 'Lista criada com sucesso!',
+          description: `${insertedCount} contatos importados`
+        });
       }
 
       setIsDialogOpen(false);
@@ -147,6 +188,9 @@ export default function Lists() {
   };
 
   const handleDelete = async (id: string) => {
+    // First delete all contacts in the list
+    await supabase.from('contacts').delete().eq('list_id', id);
+    
     const { error } = await supabase.from('lists').delete().eq('id', id);
     if (error) {
       toast({ title: 'Erro ao excluir lista', variant: 'destructive' });
@@ -160,41 +204,23 @@ export default function Lists() {
     setEditingList(list);
     setFormData({
       name: list.name,
-      sheet_id: list.sheet_id || '',
-      sheet_tab_id: list.sheet_tab_id || '',
       description: list.description || '',
-      contact_count: list.contact_count,
     });
     setIsDialogOpen(true);
   };
 
   const resetForm = () => {
     setEditingList(null);
-    setFormData({ name: '', sheet_id: '', sheet_tab_id: '', description: '', contact_count: 0 });
-  };
-
-  const getListTypeBadge = (list: List) => {
-    if (list.list_type === 'local') {
-      return (
-        <Badge variant="secondary" className="gap-1">
-          <Upload className="h-3 w-3" />
-          Upload Local
-        </Badge>
-      );
-    }
-    return (
-      <Badge variant="outline" className="gap-1">
-        <FileSpreadsheet className="h-3 w-3" />
-        Google Sheets
-      </Badge>
-    );
+    setFormData({ name: '', description: '' });
+    setUploadedContacts([]);
+    setHasUploadedFile(false);
   };
 
   return (
     <AppLayout>
       <AppHeader 
         title="Listas de Contatos" 
-        description="Gerencie suas listas de contatos do Google Sheets ou importadas"
+        description="Gerencie suas listas de contatos importadas"
       />
       
       <div className="flex-1 overflow-auto p-6">
@@ -207,22 +233,22 @@ export default function Lists() {
             <DialogTrigger asChild>
               <Button>
                 <Plus className="mr-2 h-4 w-4" />
-                Nova Lista (Sheets)
+                Nova Lista
               </Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
               <DialogHeader>
-                <DialogTitle>{editingList ? 'Editar Lista' : 'Nova Lista'}</DialogTitle>
+                <DialogTitle>{editingList ? 'Editar Lista' : 'Nova Lista de Contatos'}</DialogTitle>
                 <DialogDescription>
-                  {editingList?.list_type === 'local' 
+                  {editingList 
                     ? 'Edite os dados da sua lista de contatos'
-                    : 'Configure os dados da sua planilha do Google Sheets'
+                    : 'Importe uma planilha Excel ou CSV com seus contatos'
                   }
                 </DialogDescription>
               </DialogHeader>
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="name">Nome da Lista</Label>
+                  <Label htmlFor="name">Nome da Lista *</Label>
                   <Input
                     id="name"
                     value={formData.name}
@@ -231,40 +257,26 @@ export default function Lists() {
                     required
                   />
                 </div>
-                
-                {/* Only show Sheet fields for google_sheets type or new lists */}
-                {(!editingList || editingList.list_type === 'google_sheets') && (
-                  <>
-                    <div className="space-y-2">
-                      <Label htmlFor="sheet_id">Sheet ID</Label>
-                      <Input
-                        id="sheet_id"
-                        value={formData.sheet_id}
-                        onChange={(e) => setFormData({ ...formData, sheet_id: e.target.value })}
-                        placeholder="ID da planilha do Google Sheets"
-                        required={!editingList || editingList.list_type === 'google_sheets'}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="sheet_tab_id">Nome da Aba (opcional)</Label>
-                      <Input
-                        id="sheet_tab_id"
-                        value={formData.sheet_tab_id}
-                        onChange={(e) => setFormData({ ...formData, sheet_tab_id: e.target.value })}
-                        placeholder="Ex: Sheet1"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="contact_count">Quantidade de Contatos</Label>
-                      <Input
-                        id="contact_count"
-                        type="number"
-                        value={formData.contact_count}
-                        onChange={(e) => setFormData({ ...formData, contact_count: parseInt(e.target.value) || 0 })}
-                        placeholder="0"
-                      />
-                    </div>
-                  </>
+
+                {/* File upload - only for new lists */}
+                {!editingList && (
+                  <div className="space-y-2">
+                    <Label>Arquivo de Contatos *</Label>
+                    <ListUpload 
+                      onDataReady={handleDataReady}
+                      onClear={handleClearUpload}
+                    />
+                  </div>
+                )}
+
+                {/* Show upload confirmation */}
+                {hasUploadedFile && uploadedContacts.length > 0 && (
+                  <div className="flex items-center gap-2 p-3 bg-green-500/10 border border-green-500/20 rounded-lg">
+                    <CheckCircle2 className="h-5 w-5 text-green-600" />
+                    <span className="text-sm font-medium text-green-700 dark:text-green-400">
+                      {uploadedContacts.length} contatos prontos para importar
+                    </span>
+                  </div>
                 )}
 
                 <div className="space-y-2">
@@ -276,13 +288,25 @@ export default function Lists() {
                     placeholder="Descrição da lista..."
                   />
                 </div>
-                <Button type="submit" className="w-full" disabled={isSaving}>
+
+                <Button 
+                  type="submit" 
+                  className="w-full" 
+                  disabled={isSaving || (!editingList && !hasUploadedFile)}
+                >
                   {isSaving ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Salvando...
+                      {editingList ? 'Salvando...' : 'Importando...'}
                     </>
-                  ) : editingList ? 'Atualizar' : 'Criar Lista'}
+                  ) : editingList ? (
+                    'Atualizar Lista'
+                  ) : (
+                    <>
+                      <Upload className="mr-2 h-4 w-4" />
+                      Criar Lista ({uploadedContacts.length} contatos)
+                    </>
+                  )}
                 </Button>
               </form>
             </DialogContent>
@@ -296,9 +320,9 @@ export default function Lists() {
         ) : lists.length === 0 ? (
           <Card>
             <CardContent className="flex flex-col items-center justify-center py-12">
-              <FileSpreadsheet className="h-12 w-12 text-muted-foreground mb-4" />
+              <Upload className="h-12 w-12 text-muted-foreground mb-4" />
               <p className="text-muted-foreground">Nenhuma lista cadastrada</p>
-              <p className="text-sm text-muted-foreground">Crie uma lista via Google Sheets ou importe contatos em Campanhas</p>
+              <p className="text-sm text-muted-foreground">Importe uma planilha para criar sua primeira lista</p>
             </CardContent>
           </Card>
         ) : (
@@ -314,20 +338,21 @@ export default function Lists() {
                           <Users className="h-3 w-3" />
                           {list.contact_count} contatos
                         </CardDescription>
-                        {getListTypeBadge(list)}
+                        <Badge variant="secondary" className="gap-1">
+                          <Upload className="h-3 w-3" />
+                          Local
+                        </Badge>
                       </div>
                     </div>
                     <div className="flex gap-1">
-                      {list.list_type === 'local' && (
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          onClick={() => handleViewContacts(list)}
-                          title="Ver contatos"
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                      )}
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        onClick={() => handleViewContacts(list)}
+                        title="Ver contatos"
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
                       <Button variant="ghost" size="icon" onClick={() => handleEdit(list)}>
                         <Edit className="h-4 w-4" />
                       </Button>
@@ -338,14 +363,8 @@ export default function Lists() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-xs text-muted-foreground space-y-1">
-                    {list.list_type === 'google_sheets' && list.sheet_id && (
-                      <>
-                        <p><span className="font-medium">Sheet ID:</span> {list.sheet_id.slice(0, 20)}...</p>
-                        {list.sheet_tab_id && <p><span className="font-medium">Aba:</span> {list.sheet_tab_id}</p>}
-                      </>
-                    )}
-                    {list.description && <p className="mt-2">{list.description}</p>}
+                  <div className="text-xs text-muted-foreground">
+                    {list.description && <p>{list.description}</p>}
                   </div>
                 </CardContent>
               </Card>
