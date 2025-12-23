@@ -414,6 +414,7 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
                 onPause={queueDispatcher.pause}
                 onResume={queueDispatcher.resume}
                 onCancel={queueDispatcher.cancel}
+                onExcludeContact={queueDispatcher.excludeContact}
                 totalContacts={validCount > 0 ? validCount : rows.length}
               />
               

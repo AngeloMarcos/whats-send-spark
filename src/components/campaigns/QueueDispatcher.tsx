@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { 
   Play, 
   Pause, 
@@ -17,9 +18,11 @@ import {
   Loader2,
   Timer,
   Users,
-  AlertTriangle
+  AlertTriangle,
+  X,
+  Ban
 } from 'lucide-react';
-import { DispatcherState } from '@/hooks/useQueueDispatcher';
+import { DispatcherState, QueueItem } from '@/hooks/useQueueDispatcher';
 
 interface QueueDispatcherProps {
   state: DispatcherState;
@@ -30,6 +33,7 @@ interface QueueDispatcherProps {
   onPause: () => void;
   onResume: () => void;
   onCancel: () => void;
+  onExcludeContact?: (queueItemId: string) => void;
   totalContacts: number;
   disabled?: boolean;
 }
@@ -49,11 +53,13 @@ export function QueueDispatcher({
   onPause,
   onResume,
   onCancel,
+  onExcludeContact,
   totalContacts,
   disabled = false,
 }: QueueDispatcherProps) {
   const [intervalMinutes, setIntervalMinutes] = useState(5);
   const [displaySeconds, setDisplaySeconds] = useState(secondsUntilNext);
+  const [showPendingList, setShowPendingList] = useState(false);
 
   // Update countdown display
   useEffect(() => {
@@ -152,21 +158,25 @@ export function QueueDispatcher({
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Stats Grid */}
-        <div className="grid grid-cols-4 gap-3">
-          <div className="text-center p-3 rounded-lg bg-muted/50">
-            <div className="text-2xl font-bold">{state.totalContacts}</div>
+        <div className="grid grid-cols-5 gap-2">
+          <div className="text-center p-2 rounded-lg bg-muted/50">
+            <div className="text-xl font-bold">{state.totalContacts}</div>
             <div className="text-xs text-muted-foreground">Total</div>
           </div>
-          <div className="text-center p-3 rounded-lg bg-emerald-500/10">
-            <div className="text-2xl font-bold text-emerald-600">{state.sentCount}</div>
+          <div className="text-center p-2 rounded-lg bg-emerald-500/10">
+            <div className="text-xl font-bold text-emerald-600">{state.sentCount}</div>
             <div className="text-xs text-muted-foreground">Enviados</div>
           </div>
-          <div className="text-center p-3 rounded-lg bg-red-500/10">
-            <div className="text-2xl font-bold text-red-600">{state.failedCount}</div>
+          <div className="text-center p-2 rounded-lg bg-red-500/10">
+            <div className="text-xl font-bold text-red-600">{state.failedCount}</div>
             <div className="text-xs text-muted-foreground">Erros</div>
           </div>
-          <div className="text-center p-3 rounded-lg bg-primary/10">
-            <div className="text-2xl font-bold text-primary">{remainingCount}</div>
+          <div className="text-center p-2 rounded-lg bg-amber-500/10">
+            <div className="text-xl font-bold text-amber-600">{state.excludedCount}</div>
+            <div className="text-xs text-muted-foreground">Excluídos</div>
+          </div>
+          <div className="text-center p-2 rounded-lg bg-primary/10">
+            <div className="text-xl font-bold text-primary">{remainingCount}</div>
             <div className="text-xs text-muted-foreground">Na Fila</div>
           </div>
         </div>
@@ -222,6 +232,55 @@ export function QueueDispatcher({
               <Square className="mr-2 h-4 w-4" />
               Cancelar
             </Button>
+          </div>
+        )}
+
+        {/* Pending Contacts List with Exclude Option */}
+        {state.isRunning && remainingCount > 0 && onExcludeContact && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <Users className="h-4 w-4 text-muted-foreground" />
+                Contatos pendentes ({remainingCount})
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowPendingList(!showPendingList)}
+              >
+                {showPendingList ? 'Ocultar' : 'Ver lista'}
+              </Button>
+            </div>
+            {showPendingList && (
+              <ScrollArea className="h-40 rounded-md border">
+                <div className="p-2 space-y-1">
+                  {state.queue.slice(0, 20).map((item, idx) => (
+                    <div 
+                      key={item.id || idx}
+                      className="flex items-center justify-between gap-2 text-xs p-2 rounded bg-muted/50 hover:bg-muted"
+                    >
+                      <span className="truncate flex-1">
+                        {item.contact_name || 'Sem nome'} - {item.contact_phone}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 w-6 p-0 text-red-500 hover:text-red-700 hover:bg-red-100"
+                        onClick={() => onExcludeContact(item.id)}
+                        title="Excluir da fila"
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  ))}
+                  {remainingCount > 20 && (
+                    <div className="text-xs text-muted-foreground text-center py-2">
+                      +{remainingCount - 20} contatos não exibidos
+                    </div>
+                  )}
+                </div>
+              </ScrollArea>
+            )}
           </div>
         )}
 
