@@ -14,6 +14,50 @@ export type Database = {
   }
   public: {
     Tables: {
+      campaign_queue: {
+        Row: {
+          campaign_id: string
+          contact_data: Json | null
+          contact_name: string | null
+          contact_phone: string
+          created_at: string
+          error_message: string | null
+          id: string
+          sent_at: string | null
+          status: string
+        }
+        Insert: {
+          campaign_id: string
+          contact_data?: Json | null
+          contact_name?: string | null
+          contact_phone: string
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          sent_at?: string | null
+          status?: string
+        }
+        Update: {
+          campaign_id?: string
+          contact_data?: Json | null
+          contact_name?: string | null
+          contact_phone?: string
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          sent_at?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_queue_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       campaigns: {
         Row: {
           completed_at: string | null
@@ -28,6 +72,7 @@ export type Database = {
           message: string
           name: string
           scheduled_at: string | null
+          send_interval_minutes: number | null
           send_limit: number | null
           send_now: boolean | null
           status: Database["public"]["Enums"]["campaign_status"]
@@ -48,6 +93,7 @@ export type Database = {
           message: string
           name: string
           scheduled_at?: string | null
+          send_interval_minutes?: number | null
           send_limit?: number | null
           send_now?: boolean | null
           status?: Database["public"]["Enums"]["campaign_status"]
@@ -68,6 +114,7 @@ export type Database = {
           message?: string
           name?: string
           scheduled_at?: string | null
+          send_interval_minutes?: number | null
           send_limit?: number | null
           send_now?: boolean | null
           status?: Database["public"]["Enums"]["campaign_status"]
