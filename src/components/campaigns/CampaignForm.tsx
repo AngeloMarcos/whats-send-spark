@@ -73,11 +73,18 @@ export function CampaignForm({ lists, templates, onMessageChange, onCampaignCrea
         setFormData({ ...formData, message: data.message, use_ai: false });
         onMessageChange(data.message);
         toast({ title: 'Mensagem gerada com sucesso!' });
+      } else {
+        toast({
+          title: 'Erro ao gerar mensagem',
+          description: 'Resposta inválida do servidor. Tente novamente.',
+          variant: 'destructive',
+        });
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
       toast({
         title: 'Erro ao gerar mensagem',
-        description: error.message,
+        description: errorMessage,
         variant: 'destructive',
       });
     } finally {
