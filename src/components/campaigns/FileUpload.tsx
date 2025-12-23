@@ -216,6 +216,12 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
       if (data?.message) {
         setFormData({ ...formData, message: data.message, useAi: false });
         toast({ title: 'Mensagem gerada com sucesso!' });
+      } else {
+        toast({
+          title: 'Erro ao gerar mensagem',
+          description: 'Resposta inválida do servidor. Tente novamente.',
+          variant: 'destructive',
+        });
       }
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
