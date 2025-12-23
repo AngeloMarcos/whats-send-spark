@@ -535,12 +535,12 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
                 </div>
                 <div className="space-y-2">
                   <Label>Coluna de Nome</Label>
-                  <Select value={nameColumn} onValueChange={setNameColumn}>
+                  <Select value={nameColumn || "none"} onValueChange={(v) => setNameColumn(v === "none" ? "" : v)}>
                     <SelectTrigger>
                       <SelectValue placeholder="(opcional)" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">(nenhuma)</SelectItem>
+                      <SelectItem value="none">(nenhuma)</SelectItem>
                       {headers.map((h) => (
                         <SelectItem key={h} value={h}>{h}</SelectItem>
                       ))}

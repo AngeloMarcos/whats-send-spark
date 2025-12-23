@@ -246,12 +246,12 @@ export function ListUpload({ onDataReady, onClear }: ListUploadProps) {
         </div>
         <div className="space-y-2">
           <Label>Coluna do Nome</Label>
-          <Select value={nameColumn} onValueChange={setNameColumn}>
+          <Select value={nameColumn || "none"} onValueChange={(v) => setNameColumn(v === "none" ? "" : v)}>
             <SelectTrigger>
               <SelectValue placeholder="Opcional" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">Nenhuma</SelectItem>
+              <SelectItem value="none">Nenhuma</SelectItem>
               {headers.map(h => (
                 <SelectItem key={h} value={h}>{h}</SelectItem>
               ))}
