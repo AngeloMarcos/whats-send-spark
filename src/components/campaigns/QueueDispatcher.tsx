@@ -20,7 +20,8 @@ import {
   Users,
   AlertTriangle,
   X,
-  Ban
+  Ban,
+  RefreshCcw
 } from 'lucide-react';
 import { DispatcherState, QueueItem } from '@/hooks/useQueueDispatcher';
 
@@ -34,6 +35,7 @@ interface QueueDispatcherProps {
   onResume: () => void;
   onCancel: () => void;
   onExcludeContact?: (queueItemId: string) => void;
+  onRetryFailed?: () => void;
   totalContacts: number;
   disabled?: boolean;
 }
@@ -54,6 +56,7 @@ export function QueueDispatcher({
   onResume,
   onCancel,
   onExcludeContact,
+  onRetryFailed,
   totalContacts,
   disabled = false,
 }: QueueDispatcherProps) {
@@ -328,6 +331,18 @@ export function QueueDispatcher({
               ))}
             </div>
           </div>
+        )}
+
+        {/* Retry Failed Button */}
+        {!state.isRunning && state.failedCount > 0 && onRetryFailed && (
+          <Button
+            onClick={onRetryFailed}
+            variant="outline"
+            className="w-full border-amber-500/50 text-amber-600 hover:bg-amber-500/10"
+          >
+            <RefreshCcw className="mr-2 h-4 w-4" />
+            Retentar {state.failedCount} Contato{state.failedCount > 1 ? 's' : ''} com Erro
+          </Button>
         )}
       </CardContent>
     </Card>
