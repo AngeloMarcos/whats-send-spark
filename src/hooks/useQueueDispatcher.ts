@@ -413,6 +413,79 @@ export const useQueueDispatcher = () => {
     }
   }, [toast]);
 
+  // Retry failed contacts
+  const retryFailed = useCallback(async () => {
+    if (!state.campaignId) return;
+
+    try {
+      // Fetch contacts with error status
+      const { data: failedItems, error } = await supabase
+        .from('campaign_queue')
+        .select('*')
+        .eq('campaign_id', state.campaignId)
+        .eq('status', 'error');
+
+      if (error) throw error;
+
+      if (!failedItems || failedItems.length === 0) {
+        toast({
+          title: 'Nenhum contato com erro',
+          description: 'Não há contatos para retentar.',
+        });
+        return;
+      }
+
+      // Update status back to 'pending'
+      const { error: updateError } = await supabase
+        .from('campaign_queue')
+        .update({ 
+          status: 'pending', 
+          error_message: null 
+        })
+        .eq('campaign_id', state.campaignId)
+        .eq('status', 'error');
+
+      if (updateError) throw updateError;
+
+      // Update local state
+      const queueItems: QueueItem[] = failedItems.map(item => ({
+        id: item.id,
+        contact_name: item.contact_name,
+        contact_phone: item.contact_phone,
+        status: 'pending' as const,
+      }));
+
+      setState(prev => ({
+        ...prev,
+        queue: [...prev.queue, ...queueItems],
+        failedCount: 0,
+        recentErrors: [],
+        isRunning: true,
+        isPaused: false,
+        nextSendTime: Date.now(),
+      }));
+
+      // Update campaign status
+      await supabase
+        .from('campaigns')
+        .update({ status: 'sending' })
+        .eq('id', state.campaignId);
+
+      toast({
+        title: 'Retentando envios',
+        description: `${failedItems.length} contato${failedItems.length > 1 ? 's' : ''} reinserido${failedItems.length > 1 ? 's' : ''} na fila.`,
+      });
+
+    } catch (error) {
+      console.error('Error retrying failed contacts:', error);
+      toast({
+        title: 'Erro ao retentar',
+        description: error instanceof Error ? error.message : 'Erro desconhecido',
+        variant: 'destructive',
+      });
+    }
+  }, [state.campaignId, toast]);
+
   // Calculate progress
   const progress = state.totalContacts > 0
     ? Math.round(((state.sentCount + state.failedCount) / state.totalContacts) * 100)
@@ -433,6 +506,7 @@ export const useQueueDispatcher = () => {
     cancel,
     reset,
     excludeContact,
+    retryFailed,
     remainingCount: state.queue.length,
   };
 };
