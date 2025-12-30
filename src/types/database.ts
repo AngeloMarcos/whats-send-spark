@@ -66,6 +66,7 @@ export interface Campaign {
   send_now: boolean;
   scheduled_at: string | null;
   send_limit: number | null;
+  send_interval_minutes: number | null;
   contacts_total: number;
   contacts_sent: number;
   contacts_failed: number;
