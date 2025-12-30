@@ -14,11 +14,21 @@ export interface Lead {
   latitude: number | null;
   longitude: number | null;
   place_id: string;
+  maps_url?: string;
+}
+
+export interface SearchMetrics {
+  total: number;
+  searched: number;
+  with_phone: number;
+  success_rate: number;
+  processing_time: number;
 }
 
 export interface SearchParams {
   query: string;
   location: string;
+  radius?: number;
   maxResults?: number;
   minRating?: number;
   onlyWithPhone?: boolean;
@@ -28,17 +38,21 @@ export function useGooglePlaces() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [metrics, setMetrics] = useState<SearchMetrics | null>(null);
+  const [searchLocation, setSearchLocation] = useState<string | null>(null);
   const { toast } = useToast();
 
   const searchPlaces = async (params: SearchParams) => {
     setIsLoading(true);
     setError(null);
+    setMetrics(null);
 
     try {
       const { data, error: fnError } = await supabase.functions.invoke('search-google-places', {
         body: {
           query: params.query,
           location: params.location,
+          radius: params.radius || 5000,
           maxResults: params.maxResults || 50,
           minRating: params.minRating || 0,
           onlyWithPhone: params.onlyWithPhone !== false,
@@ -54,9 +68,12 @@ export function useGooglePlaces() {
       }
 
       setLeads(data.data);
+      setMetrics(data.metrics);
+      setSearchLocation(data.location);
+      
       toast({
         title: 'Busca concluída',
-        description: `${data.data.length} estabelecimentos encontrados`,
+        description: `${data.data.length} estabelecimentos encontrados em ${data.metrics.processing_time.toFixed(1)}s`,
       });
 
       return data.data;
@@ -77,12 +94,16 @@ export function useGooglePlaces() {
   const clearResults = () => {
     setLeads([]);
     setError(null);
+    setMetrics(null);
+    setSearchLocation(null);
   };
 
   return {
     leads,
     isLoading,
     error,
+    metrics,
+    searchLocation,
     searchPlaces,
     clearResults,
   };
