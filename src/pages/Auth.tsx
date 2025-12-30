@@ -1,26 +1,43 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
+import { useLoginRateLimit, formatRemainingTime } from '@/hooks/useLoginRateLimit';
+import { useAuditLog } from '@/hooks/useAuditLog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useToast } from '@/hooks/use-toast';
-import { MessageSquare, Loader2 } from 'lucide-react';
+import { PasswordStrength, validateStrongPassword } from '@/components/auth/PasswordStrength';
+import { MessageSquare, Loader2, Eye, EyeOff, ShieldAlert } from 'lucide-react';
 import { z } from 'zod';
 
 const emailSchema = z.string().email('Email inválido');
-const passwordSchema = z.string().min(6, 'Senha deve ter pelo menos 6 caracteres');
+
+// Strong password schema
+const strongPasswordSchema = z.string()
+  .min(8, 'Mínimo 8 caracteres')
+  .regex(/[A-Z]/, 'Deve conter pelo menos 1 letra maiúscula')
+  .regex(/[0-9]/, 'Deve conter pelo menos 1 número')
+  .regex(/[!@#$%^&*(),.?":{}|<>_\-+=\[\]\\;'`~]/, 'Deve conter pelo menos 1 caractere especial');
 
 export default function Auth() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const { signIn, signUp, user } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
+  
+  // Rate limiting
+  const { isBlocked, remainingTime, attemptsRemaining, recordAttempt } = useLoginRateLimit();
+  
+  // Audit logging
+  const { logLogin } = useAuditLog();
 
   useEffect(() => {
     if (user) {
@@ -31,7 +48,24 @@ export default function Auth() {
   const validateForm = (isSignUp: boolean) => {
     try {
       emailSchema.parse(email);
-      passwordSchema.parse(password);
+      
+      if (isSignUp) {
+        // For signup, use strong password validation
+        strongPasswordSchema.parse(password);
+      } else {
+        // For login, just check it's not empty
+        if (password.length === 0) {
+          throw new z.ZodError([{ 
+            code: 'too_small', 
+            minimum: 1, 
+            type: 'string', 
+            inclusive: true, 
+            exact: false, 
+            message: 'Senha é obrigatória', 
+            path: ['password'] 
+          }]);
+        }
+      }
       return true;
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -47,6 +81,17 @@ export default function Auth() {
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Check rate limit
+    if (isBlocked) {
+      toast({
+        title: 'Muitas tentativas',
+        description: `Aguarde ${formatRemainingTime(remainingTime)} antes de tentar novamente.`,
+        variant: 'destructive',
+      });
+      return;
+    }
+    
     if (!validateForm(false)) return;
 
     setIsLoading(true);
@@ -54,6 +99,10 @@ export default function Auth() {
     setIsLoading(false);
 
     if (error) {
+      // Record failed attempt
+      recordAttempt(false);
+      logLogin(false, email);
+      
       toast({
         title: 'Erro ao entrar',
         description: error.message === 'Invalid login credentials' 
@@ -61,12 +110,27 @@ export default function Auth() {
           : error.message,
         variant: 'destructive',
       });
+    } else {
+      // Record successful attempt
+      recordAttempt(true);
+      logLogin(true, email);
     }
   };
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validateForm(true)) return;
+
+    // Additional password strength check
+    const passwordValidation = validateStrongPassword(password);
+    if (!passwordValidation.valid) {
+      toast({
+        title: 'Senha fraca',
+        description: `Sua senha precisa: ${passwordValidation.errors.join(', ')}`,
+        variant: 'destructive',
+      });
+      return;
+    }
 
     setIsLoading(true);
     const { error } = await signUp(email, password, fullName);
@@ -105,6 +169,16 @@ export default function Auth() {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {/* Rate limit warning */}
+          {isBlocked && (
+            <Alert variant="destructive" className="mb-4">
+              <ShieldAlert className="h-4 w-4" />
+              <AlertDescription>
+                Muitas tentativas de login. Aguarde {formatRemainingTime(remainingTime)} para tentar novamente.
+              </AlertDescription>
+            </Alert>
+          )}
+          
           <Tabs defaultValue="signin" className="w-full">
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="signin">Entrar</TabsTrigger>
@@ -121,20 +195,44 @@ export default function Auth() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
+                    disabled={isBlocked}
                   />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="password">Senha</Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    placeholder="••••••••"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                  />
+                  <div className="relative">
+                    <Input
+                      id="password"
+                      type={showPassword ? 'text' : 'password'}
+                      placeholder="••••••••"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      required
+                      disabled={isBlocked}
+                      className="pr-10"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                      onClick={() => setShowPassword(!showPassword)}
+                      tabIndex={-1}
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-4 w-4 text-muted-foreground" />
+                      ) : (
+                        <Eye className="h-4 w-4 text-muted-foreground" />
+                      )}
+                    </Button>
+                  </div>
+                  {!isBlocked && attemptsRemaining < 5 && attemptsRemaining > 0 && (
+                    <p className="text-xs text-amber-600">
+                      {attemptsRemaining} tentativa{attemptsRemaining !== 1 ? 's' : ''} restante{attemptsRemaining !== 1 ? 's' : ''}
+                    </p>
+                  )}
                 </div>
-                <Button type="submit" className="w-full" disabled={isLoading}>
+                <Button type="submit" className="w-full" disabled={isLoading || isBlocked}>
                   {isLoading ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -171,14 +269,33 @@ export default function Auth() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="signup-password">Senha</Label>
-                  <Input
-                    id="signup-password"
-                    type="password"
-                    placeholder="••••••••"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                  />
+                  <div className="relative">
+                    <Input
+                      id="signup-password"
+                      type={showPassword ? 'text' : 'password'}
+                      placeholder="••••••••"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      required
+                      className="pr-10"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                      onClick={() => setShowPassword(!showPassword)}
+                      tabIndex={-1}
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-4 w-4 text-muted-foreground" />
+                      ) : (
+                        <Eye className="h-4 w-4 text-muted-foreground" />
+                      )}
+                    </Button>
+                  </div>
+                  {/* Password strength indicator */}
+                  <PasswordStrength password={password} />
                 </div>
                 <Button type="submit" className="w-full" disabled={isLoading}>
                   {isLoading ? (
