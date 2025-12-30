@@ -21,7 +21,8 @@ import {
   AlertTriangle,
   X,
   Ban,
-  RefreshCcw
+  RefreshCcw,
+  SkipForward,
 } from 'lucide-react';
 import { DispatcherState, QueueItem } from '@/hooks/useQueueDispatcher';
 
@@ -161,7 +162,7 @@ export function QueueDispatcher({
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Stats Grid */}
-        <div className="grid grid-cols-5 gap-2">
+        <div className="grid grid-cols-6 gap-2">
           <div className="text-center p-2 rounded-lg bg-muted/50">
             <div className="text-xl font-bold">{state.totalContacts}</div>
             <div className="text-xs text-muted-foreground">Total</div>
@@ -178,11 +179,25 @@ export function QueueDispatcher({
             <div className="text-xl font-bold text-amber-600">{state.excludedCount}</div>
             <div className="text-xs text-muted-foreground">Excluídos</div>
           </div>
+          <div className="text-center p-2 rounded-lg bg-blue-500/10">
+            <div className="text-xl font-bold text-blue-600">{state.skippedCount || 0}</div>
+            <div className="text-xs text-muted-foreground">Ignorados</div>
+          </div>
           <div className="text-center p-2 rounded-lg bg-primary/10">
             <div className="text-xl font-bold text-primary">{remainingCount}</div>
             <div className="text-xs text-muted-foreground">Na Fila</div>
           </div>
         </div>
+
+        {/* Skipped warning */}
+        {(state.skippedCount || 0) > 0 && (
+          <div className="flex items-center gap-2 p-2 rounded-lg bg-blue-500/10 border border-blue-500/20 text-sm">
+            <SkipForward className="h-4 w-4 text-blue-500" />
+            <span className="text-blue-700 dark:text-blue-400">
+              {state.skippedCount} contato{state.skippedCount > 1 ? 's' : ''} ignorado{state.skippedCount > 1 ? 's' : ''} (duplicados)
+            </span>
+          </div>
+        )}
 
         {/* Progress Bar */}
         <div className="space-y-2">

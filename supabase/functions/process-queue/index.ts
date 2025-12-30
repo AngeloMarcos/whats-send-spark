@@ -154,6 +154,74 @@ serve(async (req) => {
 
       console.log(`Processing contact ${nextContact.id} for campaign ${campaignId}`);
 
+      // DOUBLE CHECK #1: Verify current status is still 'pending' (race condition protection)
+      const { data: currentStatus, error: statusError } = await supabaseClient
+        .from('campaign_queue')
+        .select('status')
+        .eq('id', nextContact.id)
+        .single();
+
+      if (statusError || currentStatus?.status !== 'pending') {
+        console.log(`Contact ${nextContact.id} already processed (status: ${currentStatus?.status}), skipping`);
+        // Get remaining count and return to let client try next
+        const { count } = await supabaseClient
+          .from('campaign_queue')
+          .select('*', { count: 'exact', head: true })
+          .eq('campaign_id', campaignId)
+          .eq('status', 'pending');
+
+        return new Response(JSON.stringify({ 
+          done: (count || 0) === 0,
+          skipped: true,
+          reason: 'already_processed',
+          remainingCount: count || 0,
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      // DOUBLE CHECK #2: Check if there's already a 'sent' record for this phone in this campaign
+      const { data: alreadySent, error: dupError } = await supabaseClient
+        .from('campaign_queue')
+        .select('id')
+        .eq('campaign_id', campaignId)
+        .eq('contact_phone', nextContact.contact_phone)
+        .eq('status', 'sent')
+        .limit(1);
+
+      if (!dupError && alreadySent && alreadySent.length > 0) {
+        console.log(`Contact ${nextContact.contact_phone} already sent in this campaign, marking as skipped`);
+        
+        // Mark as skipped
+        await supabaseClient
+          .from('campaign_queue')
+          .update({ 
+            status: 'skipped', 
+            error_message: 'Duplicado - já enviado nesta campanha' 
+          })
+          .eq('id', nextContact.id);
+
+        // Get remaining count
+        const { count } = await supabaseClient
+          .from('campaign_queue')
+          .select('*', { count: 'exact', head: true })
+          .eq('campaign_id', campaignId)
+          .eq('status', 'pending');
+
+        return new Response(JSON.stringify({ 
+          done: (count || 0) === 0,
+          skipped: {
+            id: nextContact.id,
+            name: nextContact.contact_name,
+            phone: nextContact.contact_phone,
+            reason: 'duplicate',
+          },
+          remainingCount: count || 0,
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
       // Send to webhook
       try {
         const controller = new AbortController();

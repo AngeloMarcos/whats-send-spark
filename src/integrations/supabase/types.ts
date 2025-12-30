@@ -56,6 +56,13 @@ export type Database = {
             referencedRelation: "campaigns"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "campaign_queue_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "contact_send_history"
+            referencedColumns: ["campaign_id"]
+          },
         ]
       }
       campaigns: {
@@ -329,7 +336,20 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      contact_send_history: {
+        Row: {
+          campaign_date: string | null
+          campaign_id: string | null
+          campaign_name: string | null
+          contact_name: string | null
+          contact_phone: string | null
+          error_message: string | null
+          sent_at: string | null
+          status: string | null
+          user_id: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       has_role:
