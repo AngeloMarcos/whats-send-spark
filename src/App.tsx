@@ -9,6 +9,7 @@ import Templates from "./pages/Templates";
 import Settings from "./pages/Settings";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
+import LeadCapture from "./pages/LeadCapture";
 
 const queryClient = new QueryClient();
 
@@ -22,6 +23,7 @@ const App = () => (
           <Route path="/" element={<Campaigns />} />
           <Route path="/lists" element={<Lists />} />
           <Route path="/templates" element={<Templates />} />
+          <Route path="/capturar-leads" element={<LeadCapture />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/auth" element={<Auth />} />
           <Route path="*" element={<NotFound />} />
