@@ -51,6 +51,9 @@ export interface Template {
   name: string;
   content: string;
   description: string | null;
+  is_favorite: boolean;
+  category: string;
+  variables: string[];
   created_at: string;
   updated_at: string;
 }
