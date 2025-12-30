@@ -285,31 +285,40 @@ export type Database = {
       }
       templates: {
         Row: {
+          category: string | null
           content: string
           created_at: string
           description: string | null
           id: string
+          is_favorite: boolean | null
           name: string
           updated_at: string
           user_id: string
+          variables: Json | null
         }
         Insert: {
+          category?: string | null
           content: string
           created_at?: string
           description?: string | null
           id?: string
+          is_favorite?: boolean | null
           name: string
           updated_at?: string
           user_id: string
+          variables?: Json | null
         }
         Update: {
+          category?: string | null
           content?: string
           created_at?: string
           description?: string | null
           id?: string
+          is_favorite?: boolean | null
           name?: string
           updated_at?: string
           user_id?: string
+          variables?: Json | null
         }
         Relationships: []
       }
