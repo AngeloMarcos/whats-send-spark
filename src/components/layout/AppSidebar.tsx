@@ -1,4 +1,4 @@
-import { MessageSquare, Send, List, FileText, Settings, LogOut } from 'lucide-react';
+import { MessageSquare, Send, List, FileText, Settings, LogOut, MapPin } from 'lucide-react';
 import { NavLink as RouterNavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import {
@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button';
 const menuItems = [
   { title: 'Campanhas', url: '/', icon: Send },
   { title: 'Listas', url: '/lists', icon: List },
+  { title: 'Capturar Leads', url: '/capturar-leads', icon: MapPin },
   { title: 'Templates', url: '/templates', icon: FileText },
   { title: 'Configurações', url: '/settings', icon: Settings },
 ];
