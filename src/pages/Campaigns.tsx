@@ -9,6 +9,9 @@ import { MessagePreview } from '@/components/campaigns/MessagePreview';
 import { CampaignStatus } from '@/components/campaigns/CampaignStatus';
 import { CampaignHistory } from '@/components/campaigns/CampaignHistory';
 import { FileUpload } from '@/components/campaigns/FileUpload';
+import { DashboardStats } from '@/components/dashboard/DashboardStats';
+import { DashboardCharts } from '@/components/dashboard/DashboardCharts';
+import { useDashboardStats } from '@/hooks/useDashboardStats';
 import { useToast } from '@/hooks/use-toast';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SkeletonTabs, SkeletonCard } from '@/components/ui/loading-skeletons';
@@ -23,6 +26,8 @@ export default function Campaigns() {
   const [currentMessage, setCurrentMessage] = useState('');
   const [activeCampaign, setActiveCampaign] = useState<Campaign | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  
+  const { stats, dailyStats, topCampaigns, isLoading: statsLoading, refresh: refreshStats } = useDashboardStats();
 
   useEffect(() => {
     if (user) {
@@ -56,6 +61,12 @@ export default function Campaigns() {
   const handleCampaignCreated = (campaign: Campaign) => {
     setCampaigns(prev => [campaign, ...prev]);
     setActiveCampaign(campaign);
+    refreshStats();
+  };
+
+  const handleRefresh = () => {
+    fetchData();
+    refreshStats();
   };
 
   return (
@@ -65,7 +76,18 @@ export default function Campaigns() {
         description="Gerencie e envie campanhas de mensagens para seus contatos via WhatsApp"
       />
       
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 overflow-auto p-6 space-y-6">
+        {/* Dashboard Stats */}
+        <DashboardStats stats={stats} isLoading={statsLoading} />
+        
+        {/* Dashboard Charts */}
+        <DashboardCharts 
+          dailyStats={dailyStats} 
+          topCampaigns={topCampaigns} 
+          stats={stats}
+          isLoading={statsLoading} 
+        />
+
         {isLoading ? (
           <div className="space-y-6">
             <SkeletonTabs />
@@ -116,7 +138,7 @@ export default function Campaigns() {
             <div className="mt-8">
               <CampaignHistory 
                 campaigns={campaigns} 
-                onRefresh={fetchData}
+                onRefresh={handleRefresh}
                 isLoading={isLoading}
               />
             </div>

@@ -1,22 +1,30 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Campaign } from '@/types/database';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { SkeletonTableRows } from '@/components/ui/loading-skeletons';
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
-import { RefreshCw, Loader2, History, StopCircle, Trash2 } from 'lucide-react';
-import { format } from 'date-fns';
+import { RefreshCw, Loader2, History, StopCircle, Trash2, Search, Download, ChevronDown, ChevronUp, MessageSquare, CheckCircle, XCircle, Clock } from 'lucide-react';
+import { format, isWithinInterval, startOfDay, endOfDay, subDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import * as XLSX from 'xlsx';
 
 interface CampaignHistoryProps {
   campaigns: Campaign[];
   onRefresh: () => void;
   isLoading: boolean;
 }
+
+type CampaignStatus = 'all' | 'draft' | 'scheduled' | 'sending' | 'completed' | 'error' | 'paused';
+type DateFilter = 'all' | 'today' | 'week' | 'month';
 
 const statusConfig = {
   draft: { label: 'Rascunho', variant: 'secondary' as const },
@@ -30,6 +38,56 @@ const statusConfig = {
 export function CampaignHistory({ campaigns, onRefresh, isLoading }: CampaignHistoryProps) {
   const { toast } = useToast();
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [expandedCampaign, setExpandedCampaign] = useState<string | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+  
+  // Filter states
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<CampaignStatus>('all');
+  const [dateFilter, setDateFilter] = useState<DateFilter>('all');
+
+  // Filtered campaigns
+  const filteredCampaigns = useMemo(() => {
+    return campaigns.filter(campaign => {
+      // Search filter
+      const matchesSearch = searchQuery === '' || 
+        campaign.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        campaign.list?.name?.toLowerCase().includes(searchQuery.toLowerCase());
+      
+      // Status filter
+      const matchesStatus = statusFilter === 'all' || campaign.status === statusFilter;
+      
+      // Date filter
+      let matchesDate = true;
+      if (dateFilter !== 'all') {
+        const campaignDate = new Date(campaign.created_at);
+        const now = new Date();
+        
+        switch (dateFilter) {
+          case 'today':
+            matchesDate = isWithinInterval(campaignDate, {
+              start: startOfDay(now),
+              end: endOfDay(now),
+            });
+            break;
+          case 'week':
+            matchesDate = isWithinInterval(campaignDate, {
+              start: subDays(now, 7),
+              end: now,
+            });
+            break;
+          case 'month':
+            matchesDate = isWithinInterval(campaignDate, {
+              start: subDays(now, 30),
+              end: now,
+            });
+            break;
+        }
+      }
+      
+      return matchesSearch && matchesStatus && matchesDate;
+    });
+  }, [campaigns, searchQuery, statusFilter, dateFilter]);
 
   const handleStopCampaign = async (campaignId: string) => {
     setActionLoading(campaignId);
@@ -83,129 +141,380 @@ export function CampaignHistory({ campaigns, onRefresh, isLoading }: CampaignHis
     }
   };
 
-  return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle className="flex items-center gap-2">
-          <History className="h-5 w-5 text-primary" />
-          Histórico de Campanhas
-        </CardTitle>
-        <Button variant="outline" size="sm" onClick={onRefresh} disabled={isLoading}>
-          {isLoading ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <RefreshCw className="h-4 w-4" />
-          )}
-        </Button>
-      </CardHeader>
-      <CardContent>
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Nome</TableHead>
-                <TableHead>Lista</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-center">Enviados</TableHead>
-                <TableHead className="text-center">Total</TableHead>
-                <TableHead>Criada em</TableHead>
-                <TableHead className="text-right">Ações</TableHead>
-              </TableRow>
-            </TableHeader>
-            {isLoading ? (
-              <SkeletonTableRows rows={3} />
-            ) : campaigns.length === 0 ? (
-              <TableBody>
-                <TableRow>
-                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
-                    Nenhuma campanha encontrada
-                  </TableCell>
-                </TableRow>
-              </TableBody>
-            ) : (
-              <TableBody>
-                {campaigns.map((campaign) => {
-                  const status = statusConfig[campaign.status];
-                  const isSending = campaign.status === 'sending';
-                  const canDelete = ['draft', 'paused', 'completed', 'error'].includes(campaign.status);
-                  const isActionLoading = actionLoading === campaign.id;
+  const handleExportToExcel = async () => {
+    setIsExporting(true);
+    try {
+      const data = filteredCampaigns.map(c => ({
+        'Nome': c.name,
+        'Lista': c.list?.name || '-',
+        'Status': statusConfig[c.status]?.label || c.status,
+        'Enviados': c.contacts_sent || 0,
+        'Falhas': c.contacts_failed || 0,
+        'Total': c.contacts_total || 0,
+        'Taxa de Sucesso': c.contacts_total && c.contacts_total > 0 
+          ? `${Math.round(((c.contacts_sent || 0) / c.contacts_total) * 100)}%` 
+          : '-',
+        'Intervalo (min)': c.send_interval_minutes || '-',
+        'Criada em': format(new Date(c.created_at), 'dd/MM/yyyy HH:mm', { locale: ptBR }),
+        'Concluída em': c.completed_at 
+          ? format(new Date(c.completed_at), 'dd/MM/yyyy HH:mm', { locale: ptBR }) 
+          : '-',
+      }));
 
-                  return (
-                    <TableRow key={campaign.id}>
-                      <TableCell className="font-medium">{campaign.name}</TableCell>
-                      <TableCell>{campaign.list?.name || '-'}</TableCell>
-                      <TableCell>
-                        <Badge variant={status.variant}>{status.label}</Badge>
-                      </TableCell>
-                      <TableCell className="text-center">{campaign.contacts_sent}</TableCell>
-                      <TableCell className="text-center">{campaign.contacts_total}</TableCell>
-                      <TableCell>
-                        {format(new Date(campaign.created_at), "dd/MM/yyyy HH:mm", { locale: ptBR })}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          {isSending && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleStopCampaign(campaign.id)}
-                              disabled={isActionLoading}
-                              className="text-orange-600 hover:text-orange-700 hover:bg-orange-50"
-                            >
-                              {isActionLoading ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <StopCircle className="h-4 w-4" />
-                              )}
-                              <span className="ml-1 hidden sm:inline">Parar</span>
-                            </Button>
-                          )}
-                          {canDelete && (
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
+      const ws = XLSX.utils.json_to_sheet(data);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Campanhas');
+      
+      // Auto-size columns
+      const colWidths = Object.keys(data[0] || {}).map(key => ({
+        wch: Math.max(key.length, 15)
+      }));
+      ws['!cols'] = colWidths;
+
+      XLSX.writeFile(wb, `campanhas_${format(new Date(), 'yyyy-MM-dd')}.xlsx`);
+      
+      toast({
+        title: 'Exportação concluída',
+        description: `${data.length} campanha(s) exportada(s) com sucesso.`,
+      });
+    } catch (error) {
+      toast({
+        title: 'Erro na exportação',
+        description: 'Não foi possível exportar os dados.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const toggleExpanded = (campaignId: string) => {
+    setExpandedCampaign(prev => prev === campaignId ? null : campaignId);
+  };
+
+  return (
+    <TooltipProvider>
+      <Card>
+        <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <CardTitle className="flex items-center gap-2">
+            <History className="h-5 w-5 text-primary" />
+            Histórico de Campanhas
+          </CardTitle>
+          
+          <div className="flex flex-wrap items-center gap-2">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={handleExportToExcel} 
+                  disabled={isExporting || filteredCampaigns.length === 0}
+                >
+                  {isExporting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Download className="h-4 w-4" />
+                  )}
+                  <span className="ml-1 hidden sm:inline">Exportar</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Baixar relatório em Excel</p>
+              </TooltipContent>
+            </Tooltip>
+
+            <Button variant="outline" size="sm" onClick={onRefresh} disabled={isLoading}>
+              {isLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+            </Button>
+          </div>
+        </CardHeader>
+
+        <CardContent className="space-y-4">
+          {/* Filters */}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Buscar por nome ou lista..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+            
+            <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as CampaignStatus)}>
+              <SelectTrigger className="w-full sm:w-[150px]">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                <SelectItem value="sending">Enviando</SelectItem>
+                <SelectItem value="completed">Concluída</SelectItem>
+                <SelectItem value="paused">Pausada</SelectItem>
+                <SelectItem value="error">Erro</SelectItem>
+                <SelectItem value="draft">Rascunho</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Select value={dateFilter} onValueChange={(v) => setDateFilter(v as DateFilter)}>
+              <SelectTrigger className="w-full sm:w-[140px]">
+                <SelectValue placeholder="Período" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todo período</SelectItem>
+                <SelectItem value="today">Hoje</SelectItem>
+                <SelectItem value="week">Última semana</SelectItem>
+                <SelectItem value="month">Último mês</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Results count */}
+          {!isLoading && (
+            <div className="text-sm text-muted-foreground">
+              {filteredCampaigns.length} de {campaigns.length} campanhas
+            </div>
+          )}
+
+          {/* Table */}
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-8"></TableHead>
+                  <TableHead>Nome</TableHead>
+                  <TableHead className="hidden md:table-cell">Lista</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-center">Progresso</TableHead>
+                  <TableHead className="hidden sm:table-cell">Criada em</TableHead>
+                  <TableHead className="text-right">Ações</TableHead>
+                </TableRow>
+              </TableHeader>
+              {isLoading ? (
+                <SkeletonTableRows rows={3} />
+              ) : filteredCampaigns.length === 0 ? (
+                <TableBody>
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                      {campaigns.length === 0 
+                        ? 'Nenhuma campanha encontrada' 
+                        : 'Nenhuma campanha corresponde aos filtros'}
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              ) : (
+                <TableBody>
+                  {filteredCampaigns.map((campaign) => {
+                    const status = statusConfig[campaign.status];
+                    const isSending = campaign.status === 'sending';
+                    const canDelete = ['draft', 'paused', 'completed', 'error'].includes(campaign.status);
+                    const isActionLoading = actionLoading === campaign.id;
+                    const isExpanded = expandedCampaign === campaign.id;
+                    const progressPercent = campaign.contacts_total && campaign.contacts_total > 0
+                      ? Math.round(((campaign.contacts_sent || 0) / campaign.contacts_total) * 100)
+                      : 0;
+
+                    return (
+                      <Collapsible key={campaign.id} asChild open={isExpanded}>
+                        <>
+                          <TableRow className="hover:bg-muted/50 transition-colors">
+                            <TableCell>
+                              <CollapsibleTrigger asChild>
                                 <Button
-                                  variant="outline"
+                                  variant="ghost"
                                   size="sm"
-                                  disabled={isActionLoading}
-                                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                                  className="h-6 w-6 p-0"
+                                  onClick={() => toggleExpanded(campaign.id)}
                                 >
-                                  {isActionLoading ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  {isExpanded ? (
+                                    <ChevronUp className="h-4 w-4" />
                                   ) : (
-                                    <Trash2 className="h-4 w-4" />
+                                    <ChevronDown className="h-4 w-4" />
                                   )}
-                                  <span className="ml-1 hidden sm:inline">Excluir</span>
                                 </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>Excluir campanha?</AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                    Esta ação não pode ser desfeita. A campanha "{campaign.name}" será excluída permanentemente.
-                                  </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                                  <AlertDialogAction
-                                    onClick={() => handleDeleteCampaign(campaign.id)}
-                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                  >
-                                    Excluir
-                                  </AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            )}
-          </Table>
-        </div>
-      </CardContent>
-    </Card>
+                              </CollapsibleTrigger>
+                            </TableCell>
+                            <TableCell className="font-medium">{campaign.name}</TableCell>
+                            <TableCell className="hidden md:table-cell">
+                              {campaign.list?.name || '-'}
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant={status.variant} className="transition-transform hover:scale-105">
+                                {status.label}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-center">
+                              <div className="flex items-center justify-center gap-2">
+                                <span className="text-sm font-medium">{campaign.contacts_sent || 0}</span>
+                                <span className="text-muted-foreground">/</span>
+                                <span className="text-sm">{campaign.contacts_total || 0}</span>
+                                <span className="text-xs text-muted-foreground">({progressPercent}%)</span>
+                              </div>
+                            </TableCell>
+                            <TableCell className="hidden sm:table-cell">
+                              {format(new Date(campaign.created_at), "dd/MM/yyyy HH:mm", { locale: ptBR })}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex items-center justify-end gap-1">
+                                {isSending && (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => handleStopCampaign(campaign.id)}
+                                        disabled={isActionLoading}
+                                        className="text-amber-600 hover:text-amber-700 hover:bg-amber-50"
+                                      >
+                                        {isActionLoading ? (
+                                          <Loader2 className="h-4 w-4 animate-spin" />
+                                        ) : (
+                                          <StopCircle className="h-4 w-4" />
+                                        )}
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Pausar campanha</TooltipContent>
+                                  </Tooltip>
+                                )}
+                                {canDelete && (
+                                  <AlertDialog>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <AlertDialogTrigger asChild>
+                                          <Button
+                                            variant="outline"
+                                            size="sm"
+                                            disabled={isActionLoading}
+                                            className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                                          >
+                                            {isActionLoading ? (
+                                              <Loader2 className="h-4 w-4 animate-spin" />
+                                            ) : (
+                                              <Trash2 className="h-4 w-4" />
+                                            )}
+                                          </Button>
+                                        </AlertDialogTrigger>
+                                      </TooltipTrigger>
+                                      <TooltipContent>Excluir campanha</TooltipContent>
+                                    </Tooltip>
+                                    <AlertDialogContent>
+                                      <AlertDialogHeader>
+                                        <AlertDialogTitle>Excluir campanha?</AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                          Esta ação não pode ser desfeita. A campanha "{campaign.name}" será excluída permanentemente.
+                                        </AlertDialogDescription>
+                                      </AlertDialogHeader>
+                                      <AlertDialogFooter>
+                                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                        <AlertDialogAction
+                                          onClick={() => handleDeleteCampaign(campaign.id)}
+                                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                        >
+                                          Excluir
+                                        </AlertDialogAction>
+                                      </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                  </AlertDialog>
+                                )}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                          
+                          {/* Expanded Content */}
+                          <CollapsibleContent asChild>
+                            <TableRow className="bg-muted/30">
+                              <TableCell colSpan={7} className="p-4">
+                                <div className="space-y-4 animate-fade-in">
+                                  {/* Campaign Details */}
+                                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    {/* Stats */}
+                                    <div className="space-y-2">
+                                      <h4 className="text-sm font-medium flex items-center gap-2">
+                                        <CheckCircle className="h-4 w-4 text-primary" />
+                                        Estatísticas
+                                      </h4>
+                                      <div className="grid grid-cols-2 gap-2 text-sm">
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-muted-foreground">Enviados:</span>
+                                          <span className="font-medium text-primary">{campaign.contacts_sent || 0}</span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-muted-foreground">Falhas:</span>
+                                          <span className="font-medium text-destructive">{campaign.contacts_failed || 0}</span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-muted-foreground">Total:</span>
+                                          <span className="font-medium">{campaign.contacts_total || 0}</span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-muted-foreground">Intervalo:</span>
+                                          <span className="font-medium">{campaign.send_interval_minutes || 5} min</span>
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    {/* Dates */}
+                                    <div className="space-y-2">
+                                      <h4 className="text-sm font-medium flex items-center gap-2">
+                                        <Clock className="h-4 w-4 text-primary" />
+                                        Datas
+                                      </h4>
+                                      <div className="space-y-1 text-sm">
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-muted-foreground">Criada:</span>
+                                          <span>{format(new Date(campaign.created_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}</span>
+                                        </div>
+                                        {campaign.completed_at && (
+                                          <div className="flex items-center gap-2">
+                                            <span className="text-muted-foreground">Concluída:</span>
+                                            <span>{format(new Date(campaign.completed_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}</span>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    {/* Message Preview */}
+                                    <div className="space-y-2">
+                                      <h4 className="text-sm font-medium flex items-center gap-2">
+                                        <MessageSquare className="h-4 w-4 text-primary" />
+                                        Mensagem
+                                      </h4>
+                                      <div className="bg-background rounded-lg p-3 text-sm max-h-24 overflow-y-auto">
+                                        <p className="whitespace-pre-wrap text-muted-foreground line-clamp-3">
+                                          {campaign.message || 'Sem mensagem'}
+                                        </p>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Error Message */}
+                                  {campaign.error_message && (
+                                    <div className="flex items-start gap-2 p-3 bg-destructive/10 rounded-lg">
+                                      <XCircle className="h-4 w-4 text-destructive mt-0.5" />
+                                      <div>
+                                        <p className="text-sm font-medium text-destructive">Erro</p>
+                                        <p className="text-sm text-muted-foreground">{campaign.error_message}</p>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          </CollapsibleContent>
+                        </>
+                      </Collapsible>
+                    );
+                  })}
+                </TableBody>
+              )}
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
+    </TooltipProvider>
   );
 }

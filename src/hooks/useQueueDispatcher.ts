@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-
+import { toast as sonnerToast } from 'sonner';
+import { Play, CheckCircle, Pause, AlertTriangle, XCircle } from 'lucide-react';
 export interface QueueItem {
   id: string;
   contact_name: string | null;
@@ -152,6 +153,11 @@ export const useQueueDispatcher = () => {
         })),
       });
 
+      // Notification: Campaign started
+      sonnerToast.info('Campanha iniciada', {
+        description: `Enviando para ${contactsToSend.length} contatos`,
+      });
+
       return true;
     } catch (error) {
       console.error('Error initializing queue:', error);
@@ -187,8 +193,8 @@ export const useQueueDispatcher = () => {
           nextSendTime: null,
         }));
 
-        toast({
-          title: '🎉 Disparo concluído!',
+        // Notification: Campaign completed
+        sonnerToast.success('Campanha concluída!', {
           description: `Todos os ${state.totalContacts} contatos foram processados.`,
         });
 
@@ -346,6 +352,11 @@ export const useQueueDispatcher = () => {
       isPaused: true,
       nextSendTime: null,
     }));
+
+    // Notification: Campaign paused
+    sonnerToast.warning('Campanha pausada', {
+      description: 'Clique em Retomar para continuar',
+    });
 
     if (state.campaignId) {
       supabase
