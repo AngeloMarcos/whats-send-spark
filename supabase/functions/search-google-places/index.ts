@@ -33,6 +33,7 @@ interface PlaceDetails {
     weekday_text?: string[];
   };
   types?: string[];
+  url?: string;
 }
 
 interface ExtractedLead {
@@ -47,6 +48,17 @@ interface ExtractedLead {
   latitude: number | null;
   longitude: number | null;
   place_id: string;
+  maps_url: string;
+}
+
+interface GeocodeResult {
+  geometry: {
+    location: {
+      lat: number;
+      lng: number;
+    };
+  };
+  formatted_address: string;
 }
 
 function isValidBrazilianPhone(phone: string): boolean {
@@ -135,12 +147,14 @@ function translatePlaceType(type: string): string {
 }
 
 Deno.serve(async (req) => {
+  const startTime = Date.now();
+  
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { query, location, maxResults = 50, minRating = 0, onlyWithPhone = true } = await req.json();
+    const { query, location, radius = 5000, maxResults = 50, minRating = 0, onlyWithPhone = true } = await req.json();
 
     if (!query || !location) {
       return new Response(
@@ -158,16 +172,35 @@ Deno.serve(async (req) => {
       );
     }
 
-    console.log(`Searching: "${query}" in "${location}"`);
+    console.log(`Searching: "${query}" in "${location}" with radius ${radius}m`);
 
-    // Step 1: Text Search to get place_ids
-    const searchQuery = `${query} em ${location}`;
-    const textSearchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(searchQuery)}&language=pt-BR&key=${apiKey}`;
+    // Step 1: Geocode the location to get coordinates
+    const geocodeUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(location)}&language=pt-BR&key=${apiKey}`;
+    const geocodeResponse = await fetch(geocodeUrl);
+    const geocodeData = await geocodeResponse.json();
+
+    if (geocodeData.status !== 'OK' || !geocodeData.results?.[0]) {
+      console.error('Geocode API error:', geocodeData);
+      return new Response(
+        JSON.stringify({ success: false, error: `Localização não encontrada: ${location}` }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const geocodeResult: GeocodeResult = geocodeData.results[0];
+    const { lat, lng } = geocodeResult.geometry.location;
+    const formattedLocation = geocodeResult.formatted_address;
+
+    console.log(`Geocoded to: ${lat}, ${lng} (${formattedLocation})`);
+
+    // Step 2: Text Search with location bias using coordinates
+    const textSearchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&location=${lat},${lng}&radius=${radius}&language=pt-BR&key=${apiKey}`;
     
     let allPlaceIds: string[] = [];
     let nextPageToken: string | null = null;
     let pageCount = 0;
     const maxPages = Math.ceil(maxResults / 20);
+    let totalSearched = 0;
 
     do {
       const searchUrl: string = nextPageToken 
@@ -193,6 +226,7 @@ Deno.serve(async (req) => {
       if (searchData.results) {
         const placeIds = searchData.results.map((r: PlaceResult) => r.place_id);
         allPlaceIds = [...allPlaceIds, ...placeIds];
+        totalSearched += searchData.results.length;
       }
 
       nextPageToken = searchData.next_page_token || null;
@@ -202,9 +236,10 @@ Deno.serve(async (req) => {
 
     console.log(`Found ${allPlaceIds.length} places, fetching details...`);
 
-    // Step 2: Get details for each place
+    // Step 3: Get details for each place
     const leads: ExtractedLead[] = [];
-    const detailsFields = 'name,formatted_phone_number,international_phone_number,formatted_address,geometry,rating,user_ratings_total,website,opening_hours,types';
+    const detailsFields = 'name,formatted_phone_number,international_phone_number,formatted_address,geometry,rating,user_ratings_total,website,opening_hours,types,url';
+    let withPhoneCount = 0;
 
     for (const placeId of allPlaceIds.slice(0, maxResults)) {
       try {
@@ -220,6 +255,11 @@ Deno.serve(async (req) => {
         const place: PlaceDetails = detailsData.result;
         const phone = place.international_phone_number || place.formatted_phone_number || '';
         
+        // Count places with phone
+        if (phone) {
+          withPhoneCount++;
+        }
+
         // Filter by phone if required
         if (onlyWithPhone && !phone) {
           continue;
@@ -240,6 +280,8 @@ Deno.serve(async (req) => {
           ? translatePlaceType(place.types[0]) 
           : 'Estabelecimento';
 
+        const mapsUrl = place.url || `https://www.google.com/maps/place/?q=place_id:${placeId}`;
+
         leads.push({
           name: place.name,
           phone: formattedPhone,
@@ -252,6 +294,7 @@ Deno.serve(async (req) => {
           latitude: place.geometry?.location?.lat || null,
           longitude: place.geometry?.location?.lng || null,
           place_id: placeId,
+          maps_url: mapsUrl,
         });
 
       } catch (err) {
@@ -259,15 +302,24 @@ Deno.serve(async (req) => {
       }
     }
 
-    console.log(`Extracted ${leads.length} leads with valid phone numbers`);
+    const processingTime = (Date.now() - startTime) / 1000;
+    console.log(`Extracted ${leads.length} leads in ${processingTime}s`);
 
     return new Response(
       JSON.stringify({
         success: true,
         data: leads,
-        total: leads.length,
+        metrics: {
+          total: leads.length,
+          searched: totalSearched,
+          with_phone: withPhoneCount,
+          success_rate: totalSearched > 0 ? Math.round((leads.length / totalSearched) * 100) : 0,
+          processing_time: processingTime,
+        },
         query,
-        location,
+        location: formattedLocation,
+        coordinates: { lat, lng },
+        radius,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
