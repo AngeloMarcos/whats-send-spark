@@ -16,6 +16,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { ContactRow } from '@/services/bulkSender';
 import { useQueueDispatcher } from '@/hooks/useQueueDispatcher';
 import { QueueDispatcher } from './QueueDispatcher';
+import { DuplicateReportModal, DuplicateReport } from './DuplicateReportModal';
+import { ContactHistoryDialog } from './ContactHistoryDialog';
 import { 
   validateContacts, 
   applyAutoCorrection, 
@@ -36,7 +38,9 @@ import {
   XCircle,
   Wrench,
   Save,
-  RotateCcw
+  RotateCcw,
+  History,
+  Users,
 } from 'lucide-react';
 import { Campaign } from '@/types/database';
 
@@ -71,6 +75,12 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
   const [sendStatus, setSendStatus] = useState<SendStatus>('idle');
   const [sendResult, setSendResult] = useState<SendResult | null>(null);
   
+  // Duplicate detection state
+  const [duplicateReport, setDuplicateReport] = useState<DuplicateReport | null>(null);
+  const [showDuplicateModal, setShowDuplicateModal] = useState(false);
+  const [isCheckingDuplicates, setIsCheckingDuplicates] = useState(false);
+  const [duplicatesRemoved, setDuplicatesRemoved] = useState(false);
+  
   // Queue dispatcher hook
   const queueDispatcher = useQueueDispatcher();
 
@@ -84,7 +94,7 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
     aiPrompt: '',
     saveAsList: false,
     listName: '',
-    useQueueMode: true, // Default to queue mode
+    useQueueMode: true,
   });
 
   // Validate phones whenever rows or phoneColumn changes
@@ -151,6 +161,90 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
     reader.readAsBinaryString(file);
   }, [toast]);
 
+  // Check for duplicates in file and database
+  const checkAllDuplicates = useCallback(async (contactsToCheck: ContactRow[]) => {
+    if (!phoneColumn || contactsToCheck.length === 0) return null;
+
+    setIsCheckingDuplicates(true);
+
+    try {
+      // Get formatted phones
+      const phones = contactsToCheck.map(c => formatToInternational(String(c[phoneColumn] ?? '')));
+      
+      // 1. Find duplicates within the file itself
+      const phoneCounts = new Map<string, number>();
+      phones.forEach(phone => {
+        phoneCounts.set(phone, (phoneCounts.get(phone) || 0) + 1);
+      });
+      const duplicatesInFile = [...phoneCounts.entries()]
+        .filter(([, count]) => count > 1)
+        .map(([phone]) => phone);
+
+      // 2. Check database for already sent contacts
+      const uniquePhones = [...new Set(phones)];
+      const { data: sentData, error } = await supabase
+        .from('campaign_queue')
+        .select('contact_phone, campaigns!inner(name, created_at)')
+        .in('contact_phone', uniquePhones)
+        .eq('status', 'sent');
+
+      if (error) throw error;
+
+      // Group by phone with campaign details
+      const alreadySentMap = new Map<string, Array<{ name: string; sentAt: string }>>();
+      (sentData || []).forEach((item: { contact_phone: string; campaigns: { name: string; created_at: string } }) => {
+        const existing = alreadySentMap.get(item.contact_phone) || [];
+        existing.push({
+          name: item.campaigns.name,
+          sentAt: item.campaigns.created_at,
+        });
+        alreadySentMap.set(item.contact_phone, existing);
+      });
+
+      const alreadySentContacts = [...alreadySentMap.entries()].map(([phone, campaigns]) => ({
+        phone,
+        campaigns,
+      }));
+
+      // Calculate new contacts
+      const duplicatePhones = new Set([...duplicatesInFile, ...alreadySentMap.keys()]);
+      const newContacts = uniquePhones.filter(p => !alreadySentMap.has(p)).length;
+
+      const report: DuplicateReport = {
+        duplicatesInFile,
+        alreadySentContacts,
+        newContacts,
+        totalContacts: contactsToCheck.length,
+      };
+
+      setDuplicateReport(report);
+      
+      // Auto-open modal if significant duplicates found
+      if (alreadySentContacts.length > 0 || duplicatesInFile.length > 5) {
+        setShowDuplicateModal(true);
+      }
+
+      return report;
+    } catch (error) {
+      console.error('Error checking duplicates:', error);
+      toast({
+        title: 'Erro ao verificar duplicatas',
+        description: 'Não foi possível verificar duplicatas no banco de dados.',
+        variant: 'destructive',
+      });
+      return null;
+    } finally {
+      setIsCheckingDuplicates(false);
+    }
+  }, [phoneColumn, toast]);
+
+  // Trigger duplicate check when file is loaded and phone column selected
+  useEffect(() => {
+    if (rows.length > 0 && phoneColumn && !duplicatesRemoved) {
+      checkAllDuplicates(rows);
+    }
+  }, [rows, phoneColumn, checkAllDuplicates, duplicatesRemoved]);
+
   const clearFile = () => {
     setRows([]);
     setHeaders([]);
@@ -158,6 +252,8 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
     setNameColumn('');
     setFileName('');
     setValidationResult(null);
+    setDuplicateReport(null);
+    setDuplicatesRemoved(false);
   };
 
   const resetForm = () => {
@@ -176,8 +272,49 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
     });
     setSendStatus('idle');
     setSendResult(null);
+    setDuplicateReport(null);
+    setDuplicatesRemoved(false);
     queueDispatcher.reset();
   };
+
+  // Handle removing duplicates from the list
+  const handleRemoveDuplicates = useCallback(() => {
+    if (!duplicateReport || !phoneColumn) return;
+
+    const duplicatePhones = new Set([
+      ...duplicateReport.duplicatesInFile,
+      ...duplicateReport.alreadySentContacts.map(c => c.phone),
+    ]);
+
+    // Keep only first occurrence of each phone and exclude already sent
+    const seenPhones = new Set<string>();
+    const filteredRows = rows.filter(row => {
+      const phone = formatToInternational(String(row[phoneColumn] ?? ''));
+      if (seenPhones.has(phone) || duplicateReport.alreadySentContacts.some(c => c.phone === phone)) {
+        return false;
+      }
+      seenPhones.add(phone);
+      return true;
+    });
+
+    setRows(filteredRows);
+    setShowDuplicateModal(false);
+    setDuplicatesRemoved(true);
+
+    const removed = rows.length - filteredRows.length;
+    toast({
+      title: 'Duplicatas removidas',
+      description: `${removed} contato${removed > 1 ? 's foram removidos' : ' foi removido'} da lista.`,
+    });
+  }, [duplicateReport, phoneColumn, rows, toast]);
+
+  const handleKeepAll = useCallback(() => {
+    setShowDuplicateModal(false);
+    toast({
+      title: 'Lista mantida',
+      description: 'Todos os contatos serão mantidos. Duplicatas podem ser ignoradas automaticamente durante o envio.',
+    });
+  }, [toast]);
 
   const handleAutoCorrect = () => {
     if (!phoneColumn || rows.length === 0) return;
@@ -389,8 +526,8 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
   const isQueueActive = queueDispatcher.isRunning || queueDispatcher.sentCount > 0 || queueDispatcher.failedCount > 0;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      {/* Form Column */}
+    <>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -517,6 +654,58 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
                     </Select>
                   </div>
                 </div>
+              )}
+
+              {/* Duplicate Report Alert */}
+              {duplicateReport && (duplicateReport.duplicatesInFile.length > 0 || duplicateReport.alreadySentContacts.length > 0) && !duplicatesRemoved && (
+                <Alert className="border-blue-500/50 bg-blue-500/10">
+                  <div className="flex items-start gap-3">
+                    <History className="h-5 w-5 text-blue-500 mt-0.5" />
+                    <div className="flex-1">
+                      <AlertTitle className="mb-2">
+                        Duplicatas Detectadas
+                      </AlertTitle>
+                      <AlertDescription className="space-y-3">
+                        <div className="flex flex-wrap gap-2">
+                          <Badge variant="outline" className="bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border-emerald-500/30">
+                            <Users className="h-3 w-3 mr-1" />
+                            {duplicateReport.newContacts} novos
+                          </Badge>
+                          {duplicateReport.duplicatesInFile.length > 0 && (
+                            <Badge variant="outline" className="bg-amber-500/20 text-amber-700 dark:text-amber-400 border-amber-500/30">
+                              {duplicateReport.duplicatesInFile.length} duplicados no arquivo
+                            </Badge>
+                          )}
+                          {duplicateReport.alreadySentContacts.length > 0 && (
+                            <Badge variant="outline" className="bg-red-500/20 text-red-700 dark:text-red-400 border-red-500/30">
+                              {duplicateReport.alreadySentContacts.length} já enviados
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setShowDuplicateModal(true)}
+                            className="h-7 text-xs"
+                          >
+                            Ver Detalhes
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="default"
+                            size="sm"
+                            onClick={handleRemoveDuplicates}
+                            className="h-7 text-xs"
+                          >
+                            Remover Duplicados
+                          </Button>
+                        </div>
+                      </AlertDescription>
+                    </div>
+                  </div>
+                </Alert>
               )}
 
               {/* Validation Summary */}
@@ -805,5 +994,17 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
         </CardContent>
       </Card>
     </div>
+
+      {/* Duplicate Report Modal */}
+      {duplicateReport && (
+        <DuplicateReportModal
+          open={showDuplicateModal}
+          onOpenChange={setShowDuplicateModal}
+          report={duplicateReport}
+          onRemoveDuplicates={handleRemoveDuplicates}
+          onKeepAll={handleKeepAll}
+        />
+      )}
+    </>
   );
 }

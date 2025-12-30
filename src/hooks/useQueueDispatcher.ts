@@ -18,6 +18,7 @@ export interface DispatcherState {
   sentCount: number;
   failedCount: number;
   excludedCount: number;
+  skippedCount: number;
   totalContacts: number;
   isRunning: boolean;
   isPaused: boolean;
@@ -25,6 +26,7 @@ export interface DispatcherState {
   intervalMinutes: number;
   recentlySent: QueueItem[];
   recentErrors: { contact: QueueItem; error: string }[];
+  recentSkipped: QueueItem[];
 }
 
 const INITIAL_STATE: DispatcherState = {
@@ -34,6 +36,7 @@ const INITIAL_STATE: DispatcherState = {
   sentCount: 0,
   failedCount: 0,
   excludedCount: 0,
+  skippedCount: 0,
   totalContacts: 0,
   isRunning: false,
   isPaused: false,
@@ -41,6 +44,7 @@ const INITIAL_STATE: DispatcherState = {
   intervalMinutes: 5,
   recentlySent: [],
   recentErrors: [],
+  recentSkipped: [],
 };
 
 export const useQueueDispatcher = () => {
@@ -191,7 +195,27 @@ export const useQueueDispatcher = () => {
         return;
       }
 
-      if (data.sent) {
+      if (data.skipped) {
+        // Contact was skipped (duplicate)
+        const skippedContact: QueueItem = {
+          id: data.skipped.id || 'unknown',
+          contact_name: data.skipped.name || null,
+          contact_phone: data.skipped.phone || 'unknown',
+          status: 'excluded',
+        };
+
+        setState(prev => ({
+          ...prev,
+          skippedCount: prev.skippedCount + 1,
+          currentContact: null,
+          queue: prev.queue.slice(1),
+          recentSkipped: [skippedContact, ...prev.recentSkipped].slice(0, 5),
+          nextSendTime: data.remainingCount > 0 
+            ? Date.now() + prev.intervalMinutes * 60 * 1000 
+            : null,
+        }));
+
+      } else if (data.sent) {
         // Contact was sent successfully
         const sentContact: QueueItem = {
           id: data.sent.id,
