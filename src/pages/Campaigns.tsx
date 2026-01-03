@@ -8,6 +8,7 @@ import { CampaignForm } from '@/components/campaigns/CampaignForm';
 import { MessagePreview } from '@/components/campaigns/MessagePreview';
 import { CampaignStatus } from '@/components/campaigns/CampaignStatus';
 import { CampaignHistory } from '@/components/campaigns/CampaignHistory';
+import { CampaignMonitor } from '@/components/campaigns/CampaignMonitor';
 import { FileUpload } from '@/components/campaigns/FileUpload';
 import { DashboardStats } from '@/components/dashboard/DashboardStats';
 import { DashboardCharts } from '@/components/dashboard/DashboardCharts';
@@ -15,7 +16,9 @@ import { useDashboardStats } from '@/hooks/useDashboardStats';
 import { useToast } from '@/hooks/use-toast';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SkeletonTabs, SkeletonCard } from '@/components/ui/loading-skeletons';
-import { FileSpreadsheet, Link } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { FileSpreadsheet, Link, Activity } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 
 export default function Campaigns() {
   const { user } = useAuth();
@@ -26,6 +29,7 @@ export default function Campaigns() {
   const [currentMessage, setCurrentMessage] = useState('');
   const [activeCampaign, setActiveCampaign] = useState<Campaign | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [monitorCampaignId, setMonitorCampaignId] = useState<string | null>(null);
   
   const { stats, dailyStats, topCampaigns, isLoading: statsLoading, refresh: refreshStats } = useDashboardStats();
 
@@ -61,6 +65,10 @@ export default function Campaigns() {
   const handleCampaignCreated = (campaign: Campaign) => {
     setCampaigns(prev => [campaign, ...prev]);
     setActiveCampaign(campaign);
+    // Open monitor for the new campaign if it's actively sending
+    if (campaign.status === 'sending') {
+      setMonitorCampaignId(campaign.id);
+    }
     refreshStats();
   };
 
@@ -68,6 +76,9 @@ export default function Campaigns() {
     fetchData();
     refreshStats();
   };
+
+  // Get running campaigns
+  const runningCampaigns = campaigns.filter(c => c.status === 'sending');
 
   return (
     <AppLayout>
@@ -140,9 +151,53 @@ export default function Campaigns() {
                 campaigns={campaigns} 
                 onRefresh={handleRefresh}
                 isLoading={isLoading}
+                onOpenMonitor={(campaignId) => setMonitorCampaignId(campaignId)}
               />
             </div>
           </>
+        )}
+
+        {/* Campaign Monitor Dialog */}
+        <Dialog open={!!monitorCampaignId} onOpenChange={(open) => !open && setMonitorCampaignId(null)}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Activity className="h-5 w-5 text-primary" />
+                Monitor em Tempo Real
+              </DialogTitle>
+            </DialogHeader>
+            {monitorCampaignId && (
+              <CampaignMonitor 
+                campaignId={monitorCampaignId}
+                onPause={() => {
+                  // TODO: Implement pause via edge function
+                  toast({ title: 'Pausar campanha disponível em breve' });
+                }}
+                onResume={() => {
+                  // TODO: Implement resume via edge function
+                  toast({ title: 'Retomar campanha disponível em breve' });
+                }}
+              />
+            )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Floating indicator for running campaigns */}
+        {runningCampaigns.length > 0 && !monitorCampaignId && (
+          <div className="fixed bottom-6 right-6 z-50">
+            <button
+              onClick={() => setMonitorCampaignId(runningCampaigns[0].id)}
+              className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-3 rounded-full shadow-lg hover:bg-primary/90 transition-all"
+            >
+              <Activity className="h-5 w-5 animate-pulse" />
+              <span className="font-medium">
+                {runningCampaigns.length} campanha{runningCampaigns.length > 1 ? 's' : ''} em andamento
+              </span>
+              <Badge variant="secondary" className="bg-white/20">
+                Ver Monitor
+              </Badge>
+            </button>
+          </div>
         )}
       </div>
     </AppLayout>

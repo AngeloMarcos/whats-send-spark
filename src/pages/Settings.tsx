@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { SkeletonSettingsCard } from '@/components/ui/loading-skeletons';
 import { Loader2, Save, Webhook, LogOut, Zap, CheckCircle, XCircle } from 'lucide-react';
+import { TestContactsSection } from '@/components/settings/TestContactsSection';
 
 // Validate webhook URL for security (SSRF prevention)
 function validateWebhookUrl(url: string): { valid: boolean; error?: string } {
@@ -280,6 +281,9 @@ export default function Settings() {
                 </Button>
               </CardContent>
             </Card>
+
+            {/* Test Contacts */}
+            <TestContactsSection />
 
             {/* Account */}
             <Card>

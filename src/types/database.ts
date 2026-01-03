@@ -75,10 +75,34 @@ export interface Campaign {
   contacts_failed: number;
   execution_id: string | null;
   error_message: string | null;
+  is_test_mode: boolean;
   created_at: string;
   updated_at: string;
   completed_at: string | null;
   // Joined data
   list?: List;
   template?: Template;
+}
+
+export interface CampaignLog {
+  id: string;
+  campaign_id: string;
+  contact_phone: string;
+  contact_name: string | null;
+  status: string;
+  message_sent: string | null;
+  error_message: string | null;
+  processing_time_ms: number | null;
+  is_test: boolean;
+  created_at: string;
+  sent_at: string | null;
+}
+
+export interface TestContact {
+  id: string;
+  user_id: string;
+  name: string;
+  phone: string;
+  is_default: boolean;
+  created_at: string;
 }

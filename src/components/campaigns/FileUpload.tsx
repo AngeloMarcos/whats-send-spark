@@ -41,8 +41,11 @@ import {
   RotateCcw,
   History,
   Users,
+  FlaskConical,
+  Eye,
 } from 'lucide-react';
-import { Campaign } from '@/types/database';
+import { Campaign, TestContact } from '@/types/database';
+import { processMessage } from '@/lib/templateVariables';
 
 type SendStatus = 'idle' | 'loading' | 'success' | 'error';
 
@@ -95,7 +98,49 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
     saveAsList: false,
     listName: '',
     useQueueMode: true,
+    testMode: false,
+    testContactId: '',
   });
+
+  // Test contacts state
+  const [testContacts, setTestContacts] = useState<TestContact[]>([]);
+  const [loadingTestContacts, setLoadingTestContacts] = useState(false);
+
+  // Fetch test contacts when user changes
+  useEffect(() => {
+    if (user) {
+      fetchTestContacts();
+    }
+  }, [user]);
+
+  const fetchTestContacts = async () => {
+    if (!user) return;
+    setLoadingTestContacts(true);
+    try {
+      const { data, error } = await supabase
+        .from('test_contacts')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('is_default', { ascending: false });
+      
+      if (error) throw error;
+      const contacts = (data || []) as TestContact[];
+      setTestContacts(contacts);
+      
+      // Auto-select default contact
+      const defaultContact = contacts.find(c => c.is_default);
+      if (defaultContact && !formData.testContactId) {
+        setFormData(prev => ({ ...prev, testContactId: defaultContact.id }));
+      }
+    } catch (error) {
+      console.error('Error fetching test contacts:', error);
+    } finally {
+      setLoadingTestContacts(false);
+    }
+  };
+
+  // Get selected test contact
+  const selectedTestContact = testContacts.find(c => c.id === formData.testContactId);
 
   // Validate phones whenever rows or phoneColumn changes
   useEffect(() => {
@@ -269,6 +314,8 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
       saveAsList: false,
       listName: '',
       useQueueMode: true,
+      testMode: false,
+      testContactId: '',
     });
     setSendStatus('idle');
     setSendResult(null);
@@ -465,14 +512,21 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
           status: 'sending',
           send_now: true,
           scheduled_at: null,
-          send_limit: sendLimit,
+          send_limit: formData.testMode ? Math.min(sendLimit || 10, 10) : sendLimit,
           contacts_total: contactsToProcess.length,
           send_interval_minutes: intervalMinutes,
+          is_test_mode: formData.testMode,
         })
         .select()
         .single();
 
       if (campaignError) throw campaignError;
+
+      // Get test contact phone if in test mode
+      let testContactPhone: string | undefined;
+      if (formData.testMode && selectedTestContact) {
+        testContactPhone = selectedTestContact.phone;
+      }
 
       // Initialize queue dispatcher
       const success = await queueDispatcher.initializeQueue(
@@ -889,8 +943,100 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
                   type="number"
                   value={formData.sendLimit}
                   onChange={(e) => setFormData({ ...formData, sendLimit: e.target.value })}
-                  placeholder="Sem limite"
+                  placeholder={formData.testMode ? "10 (máx em modo teste)" : "Sem limite"}
+                  max={formData.testMode ? 10 : undefined}
                 />
+              </div>
+
+              {/* Test Mode Section */}
+              <div className={`space-y-4 rounded-lg border p-4 ${formData.testMode ? 'border-yellow-500/50 bg-yellow-500/10' : ''}`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <FlaskConical className={`h-5 w-5 ${formData.testMode ? 'text-yellow-600' : 'text-muted-foreground'}`} />
+                    <div>
+                      <Label>Modo de Teste</Label>
+                      <p className="text-xs text-muted-foreground">Testar sem enviar para a lista real</p>
+                    </div>
+                  </div>
+                  <Switch
+                    checked={formData.testMode}
+                    onCheckedChange={(checked) => {
+                      setFormData({ 
+                        ...formData, 
+                        testMode: checked,
+                        // Auto-limit to 10 in test mode
+                        sendLimit: checked && (!formData.sendLimit || parseInt(formData.sendLimit) > 10) ? '10' : formData.sendLimit,
+                      });
+                    }}
+                  />
+                </div>
+
+                {formData.testMode && (
+                  <div className="space-y-4 pt-2">
+                    {/* Warning */}
+                    <Alert className="border-yellow-500/50 bg-yellow-500/10">
+                      <FlaskConical className="h-4 w-4 text-yellow-600" />
+                      <AlertTitle className="text-yellow-800 dark:text-yellow-400">
+                        Modo de Teste Ativo
+                      </AlertTitle>
+                      <AlertDescription className="text-sm text-yellow-700 dark:text-yellow-300">
+                        • Máximo de 10 mensagens por execução<br />
+                        • Todas as mensagens serão enviadas para o número de teste selecionado<br />
+                        • Dados dos contatos reais serão usados para substituir variáveis
+                      </AlertDescription>
+                    </Alert>
+
+                    {/* Test Contact Selection */}
+                    <div className="space-y-2">
+                      <Label>Número de Teste</Label>
+                      {testContacts.length === 0 ? (
+                        <Alert className="border-destructive/50 bg-destructive/10">
+                          <AlertDescription className="text-sm">
+                            Nenhum contato de teste configurado. Vá em <strong>Configurações</strong> para adicionar números de teste.
+                          </AlertDescription>
+                        </Alert>
+                      ) : (
+                        <Select 
+                          value={formData.testContactId} 
+                          onValueChange={(v) => setFormData({ ...formData, testContactId: v })}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Selecione um número de teste" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {testContacts.map((tc) => (
+                              <SelectItem key={tc.id} value={tc.id}>
+                                {tc.name} ({tc.phone}) {tc.is_default && '★'}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    </div>
+
+                    {/* Message Preview */}
+                    {selectedTestContact && formData.message && rows.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Eye className="h-4 w-4 text-muted-foreground" />
+                          <Label>Preview da Mensagem (1º contato)</Label>
+                        </div>
+                        <div className="rounded-md bg-muted/50 p-3 text-sm border">
+                          <p className="text-xs text-muted-foreground mb-2">
+                            Para: <strong>{selectedTestContact.name}</strong> ({selectedTestContact.phone})
+                          </p>
+                          <p className="whitespace-pre-wrap">
+                            {processMessage(formData.message, {
+                              name: nameColumn ? String(rows[0][nameColumn] ?? '') : undefined,
+                              phone: phoneColumn ? String(rows[0][phoneColumn] ?? '') : undefined,
+                              ...rows[0],
+                            })}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Queue Dispatcher - Configuration UI */}

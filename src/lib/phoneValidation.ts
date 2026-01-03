@@ -181,3 +181,21 @@ export function applyAutoCorrection(
     };
   });
 }
+
+// Format phone for display (Brazilian format)
+export function formatPhoneForDisplay(phone: string): string {
+  const cleaned = cleanPhoneNumber(phone);
+  
+  // Remove 55 prefix for display
+  const withoutCountry = cleaned.startsWith('55') ? cleaned.substring(2) : cleaned;
+  
+  if (withoutCountry.length === 11) {
+    // Format: (XX) 9XXXX-XXXX
+    return `(${withoutCountry.substring(0, 2)}) ${withoutCountry.substring(2, 7)}-${withoutCountry.substring(7)}`;
+  } else if (withoutCountry.length === 10) {
+    // Format: (XX) XXXX-XXXX
+    return `(${withoutCountry.substring(0, 2)}) ${withoutCountry.substring(2, 6)}-${withoutCountry.substring(6)}`;
+  }
+  
+  return phone;
+}

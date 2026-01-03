@@ -10,7 +10,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { SkeletonTableRows } from '@/components/ui/loading-skeletons';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
-import { RefreshCw, Loader2, History, StopCircle, Trash2, Search, Download, ChevronDown, ChevronUp, MessageSquare, CheckCircle, XCircle, Clock } from 'lucide-react';
+import { RefreshCw, Loader2, History, StopCircle, Trash2, Search, Download, ChevronDown, ChevronUp, MessageSquare, CheckCircle, XCircle, Clock, Activity } from 'lucide-react';
 import { format, isWithinInterval, startOfDay, endOfDay, subDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { supabase } from '@/integrations/supabase/client';
@@ -21,6 +21,7 @@ interface CampaignHistoryProps {
   campaigns: Campaign[];
   onRefresh: () => void;
   isLoading: boolean;
+  onOpenMonitor?: (campaignId: string) => void;
 }
 
 type CampaignStatus = 'all' | 'draft' | 'scheduled' | 'sending' | 'completed' | 'error' | 'paused';
@@ -35,7 +36,7 @@ const statusConfig = {
   paused: { label: 'Pausada', variant: 'secondary' as const },
 };
 
-export function CampaignHistory({ campaigns, onRefresh, isLoading }: CampaignHistoryProps) {
+export function CampaignHistory({ campaigns, onRefresh, isLoading, onOpenMonitor }: CampaignHistoryProps) {
   const { toast } = useToast();
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [expandedCampaign, setExpandedCampaign] = useState<string | null>(null);
@@ -360,6 +361,22 @@ export function CampaignHistory({ campaigns, onRefresh, isLoading }: CampaignHis
                             </TableCell>
                             <TableCell className="text-right">
                               <div className="flex items-center justify-end gap-1">
+                                {/* Monitor button for sending campaigns */}
+                                {isSending && onOpenMonitor && (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => onOpenMonitor(campaign.id)}
+                                        className="text-primary hover:text-primary hover:bg-primary/10"
+                                      >
+                                        <Activity className="h-4 w-4" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Ver Monitor</TooltipContent>
+                                  </Tooltip>
+                                )}
                                 {isSending && (
                                   <Tooltip>
                                     <TooltipTrigger asChild>
