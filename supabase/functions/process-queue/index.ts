@@ -119,8 +119,28 @@ serve(async (req) => {
       });
     }
 
+    // Get test contact if in test mode
+    let testContactPhone: string | null = null;
+    if (campaign.is_test_mode) {
+      const { data: testContact } = await supabaseClient
+        .from('test_contacts')
+        .select('phone')
+        .eq('user_id', user.id)
+        .eq('is_default', true)
+        .single();
+      
+      if (testContact) {
+        testContactPhone = testContact.phone;
+        console.log(`Test mode active, using test phone: ${testContactPhone}`);
+      } else {
+        console.warn('Test mode active but no default test contact found');
+      }
+    }
+
     // Handle different actions
     if (action === 'process_next') {
+      const startTime = Date.now();
+
       // Get next pending contact from queue
       const { data: nextContact, error: queueError } = await supabaseClient
         .from('campaign_queue')
@@ -222,6 +242,9 @@ serve(async (req) => {
         });
       }
 
+      // Determine phone to send to (test mode redirects to test contact)
+      const phoneToSend = testContactPhone || nextContact.contact_phone;
+
       // Send to webhook
       try {
         const controller = new AbortController();
@@ -234,10 +257,12 @@ serve(async (req) => {
             campaignId,
             contact: {
               name: nextContact.contact_name,
-              phone: nextContact.contact_phone,
+              phone: phoneToSend, // Use test phone if in test mode
+              originalPhone: nextContact.contact_phone, // Keep original for reference
               ...nextContact.contact_data,
             },
             message: campaign.message,
+            isTestMode: campaign.is_test_mode,
           }),
           signal: controller.signal,
         });
@@ -247,6 +272,8 @@ serve(async (req) => {
         if (!response.ok) {
           throw new Error(`Webhook returned ${response.status}`);
         }
+
+        const processingTime = Date.now() - startTime;
 
         // Mark as sent
         await supabaseClient
@@ -265,7 +292,21 @@ serve(async (req) => {
           })
           .eq('id', campaignId);
 
-        console.log(`Contact ${nextContact.id} sent successfully`);
+        // Insert log for real-time monitoring
+        await supabaseClient
+          .from('campaign_logs')
+          .insert({
+            campaign_id: campaignId,
+            contact_phone: nextContact.contact_phone,
+            contact_name: nextContact.contact_name,
+            status: 'sent',
+            message_sent: campaign.message,
+            processing_time_ms: processingTime,
+            is_test: campaign.is_test_mode || false,
+            sent_at: new Date().toISOString(),
+          });
+
+        console.log(`Contact ${nextContact.id} sent successfully (${processingTime}ms)`);
 
         // Get remaining count
         const { count } = await supabaseClient
@@ -283,12 +324,14 @@ serve(async (req) => {
           },
           remainingCount: count || 0,
           sentCount: (campaign.contacts_sent || 0) + 1,
+          processingTime,
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
 
       } catch (sendError) {
         const errorMessage = sendError instanceof Error ? sendError.message : 'Unknown error';
+        const processingTime = Date.now() - startTime;
         console.error(`Error sending contact ${nextContact.id}:`, errorMessage);
 
         // Mark as error
@@ -307,6 +350,21 @@ serve(async (req) => {
             contacts_failed: (campaign.contacts_failed || 0) + 1 
           })
           .eq('id', campaignId);
+
+        // Insert error log for real-time monitoring
+        await supabaseClient
+          .from('campaign_logs')
+          .insert({
+            campaign_id: campaignId,
+            contact_phone: nextContact.contact_phone,
+            contact_name: nextContact.contact_name,
+            status: 'error',
+            message_sent: campaign.message,
+            error_message: errorMessage,
+            processing_time_ms: processingTime,
+            is_test: campaign.is_test_mode || false,
+            sent_at: new Date().toISOString(),
+          });
 
         // Get remaining count
         const { count } = await supabaseClient
@@ -352,6 +410,7 @@ serve(async (req) => {
         sent,
         error,
         intervalMinutes: campaign.send_interval_minutes || 5,
+        isTestMode: campaign.is_test_mode || false,
       }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });

@@ -50,6 +50,48 @@ export type Database = {
         }
         Relationships: []
       }
+      campaign_logs: {
+        Row: {
+          campaign_id: string
+          contact_name: string | null
+          contact_phone: string
+          created_at: string | null
+          error_message: string | null
+          id: string
+          is_test: boolean | null
+          message_sent: string | null
+          processing_time_ms: number | null
+          sent_at: string | null
+          status: string
+        }
+        Insert: {
+          campaign_id: string
+          contact_name?: string | null
+          contact_phone: string
+          created_at?: string | null
+          error_message?: string | null
+          id?: string
+          is_test?: boolean | null
+          message_sent?: string | null
+          processing_time_ms?: number | null
+          sent_at?: string | null
+          status?: string
+        }
+        Update: {
+          campaign_id?: string
+          contact_name?: string | null
+          contact_phone?: string
+          created_at?: string | null
+          error_message?: string | null
+          id?: string
+          is_test?: boolean | null
+          message_sent?: string | null
+          processing_time_ms?: number | null
+          sent_at?: string | null
+          status?: string
+        }
+        Relationships: []
+      }
       campaign_queue: {
         Row: {
           campaign_id: string
@@ -111,6 +153,7 @@ export type Database = {
           error_message: string | null
           execution_id: string | null
           id: string
+          is_test_mode: boolean | null
           list_id: string | null
           message: string
           name: string
@@ -132,6 +175,7 @@ export type Database = {
           error_message?: string | null
           execution_id?: string | null
           id?: string
+          is_test_mode?: boolean | null
           list_id?: string | null
           message: string
           name: string
@@ -153,6 +197,7 @@ export type Database = {
           error_message?: string | null
           execution_id?: string | null
           id?: string
+          is_test_mode?: boolean | null
           list_id?: string | null
           message?: string
           name?: string
@@ -355,6 +400,33 @@ export type Database = {
           updated_at?: string
           user_id?: string
           variables?: Json | null
+        }
+        Relationships: []
+      }
+      test_contacts: {
+        Row: {
+          created_at: string | null
+          id: string
+          is_default: boolean | null
+          name: string
+          phone: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          is_default?: boolean | null
+          name: string
+          phone: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          is_default?: boolean | null
+          name?: string
+          phone?: string
+          user_id?: string
         }
         Relationships: []
       }
