@@ -184,6 +184,19 @@ export const useQueueDispatcher = () => {
 
       if (error) throw error;
 
+      // Handle paused response from edge function
+      if (data.paused) {
+        setState(prev => ({ 
+          ...prev, 
+          isPaused: true,
+          nextSendTime: null,
+        }));
+        sonnerToast.info('Campanha pausada', {
+          description: 'A campanha foi pausada. Clique em Retomar para continuar.',
+        });
+        return;
+      }
+
       if (data.done) {
         // Queue is complete
         setState(prev => ({
