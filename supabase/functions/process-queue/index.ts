@@ -137,8 +137,71 @@ serve(async (req) => {
       }
     }
 
+    // Handle pause action
+    if (action === 'pause') {
+      console.log(`Pausing campaign ${campaignId}`);
+      
+      const { error: updateError } = await supabaseClient
+        .from('campaigns')
+        .update({ status: 'paused' })
+        .eq('id', campaignId);
+
+      if (updateError) {
+        console.error('Error pausing campaign:', updateError);
+        return new Response(JSON.stringify({ error: 'Failed to pause campaign' }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      return new Response(JSON.stringify({ 
+        success: true, 
+        status: 'paused',
+        message: 'Campanha pausada com sucesso'
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Handle resume action
+    if (action === 'resume') {
+      console.log(`Resuming campaign ${campaignId}`);
+      
+      const { error: updateError } = await supabaseClient
+        .from('campaigns')
+        .update({ status: 'sending' })
+        .eq('id', campaignId);
+
+      if (updateError) {
+        console.error('Error resuming campaign:', updateError);
+        return new Response(JSON.stringify({ error: 'Failed to resume campaign' }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      return new Response(JSON.stringify({ 
+        success: true, 
+        status: 'sending',
+        message: 'Campanha retomada com sucesso'
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     // Handle different actions
     if (action === 'process_next') {
+      // Check if campaign is paused before processing
+      if (campaign.status === 'paused') {
+        console.log(`Campaign ${campaignId} is paused, not processing`);
+        return new Response(JSON.stringify({ 
+          paused: true,
+          message: 'Campanha está pausada'
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
       const startTime = Date.now();
 
       // Get next pending contact from queue

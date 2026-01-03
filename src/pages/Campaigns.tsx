@@ -167,17 +167,7 @@ export default function Campaigns() {
               </DialogTitle>
             </DialogHeader>
             {monitorCampaignId && (
-              <CampaignMonitor 
-                campaignId={monitorCampaignId}
-                onPause={() => {
-                  // TODO: Implement pause via edge function
-                  toast({ title: 'Pausar campanha disponível em breve' });
-                }}
-                onResume={() => {
-                  // TODO: Implement resume via edge function
-                  toast({ title: 'Retomar campanha disponível em breve' });
-                }}
-              />
+              <CampaignMonitor campaignId={monitorCampaignId} />
             )}
           </DialogContent>
         </Dialog>

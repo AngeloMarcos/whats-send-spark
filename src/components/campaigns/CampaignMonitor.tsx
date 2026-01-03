@@ -23,26 +23,24 @@ import {
   Play,
   RefreshCw,
   Radio,
-  FlaskConical
+  FlaskConical,
+  Loader2
 } from 'lucide-react';
 import { useCampaignMonitor } from '@/hooks/useCampaignMonitor';
+import { useCampaignControl } from '@/hooks/useCampaignControl';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 interface CampaignMonitorProps {
   campaignId: string;
-  onPause?: () => void;
-  onResume?: () => void;
-  isPaused?: boolean;
 }
 
-export function CampaignMonitor({ 
-  campaignId, 
-  onPause, 
-  onResume,
-  isPaused = false 
-}: CampaignMonitorProps) {
+export function CampaignMonitor({ campaignId }: CampaignMonitorProps) {
   const { logs, chartData, stats, isLive, campaign, toggleLive, refresh } = useCampaignMonitor(campaignId);
+  const { pause, resume, isLoading: controlLoading } = useCampaignControl(campaignId);
+
+  // Derive isPaused from campaign status
+  const isPaused = campaign?.status === 'paused';
 
   const statusConfig = useMemo(() => ({
     sending: { label: 'Enviando', color: 'bg-blue-500', icon: Activity },
@@ -283,19 +281,29 @@ export function CampaignMonitor({
       </Card>
 
       {/* Control Buttons */}
-      <div className="flex justify-center gap-3">
-        {isPaused ? (
-          <Button onClick={onResume} className="gap-2">
-            <Play className="h-4 w-4" />
-            Retomar Campanha
-          </Button>
-        ) : (
-          <Button variant="outline" onClick={onPause} className="gap-2">
-            <Pause className="h-4 w-4" />
-            Pausar Campanha
-          </Button>
-        )}
-      </div>
+      {(campaign?.status === 'sending' || campaign?.status === 'paused') && (
+        <div className="flex justify-center gap-3">
+          {isPaused ? (
+            <Button onClick={resume} disabled={controlLoading} className="gap-2">
+              {controlLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Play className="h-4 w-4" />
+              )}
+              Retomar Campanha
+            </Button>
+          ) : (
+            <Button variant="outline" onClick={pause} disabled={controlLoading} className="gap-2">
+              {controlLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Pause className="h-4 w-4" />
+              )}
+              Pausar Campanha
+            </Button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
