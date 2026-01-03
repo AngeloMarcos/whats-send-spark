@@ -178,10 +178,25 @@ export function LeadActions({ leads, selectedLeads }: LeadActionsProps) {
   };
 
   const handleSaveAsList = async () => {
-    if (!hasSelection || !user) return;
+    if (!hasSelection) {
+      toast({ title: 'Nenhum lead selecionado', variant: 'destructive' });
+      return;
+    }
     
-    if (saveMode === 'new' && !listName.trim()) return;
-    if (saveMode === 'existing' && !selectedListId) return;
+    if (!user) {
+      toast({ title: 'Você precisa estar logado', variant: 'destructive' });
+      return;
+    }
+    
+    if (saveMode === 'new' && !listName.trim()) {
+      toast({ title: 'Digite um nome para a lista', variant: 'destructive' });
+      return;
+    }
+    
+    if (saveMode === 'existing' && !selectedListId) {
+      toast({ title: 'Selecione uma lista', variant: 'destructive' });
+      return;
+    }
 
     setIsSaving(true);
     try {
@@ -189,7 +204,8 @@ export function LeadActions({ leads, selectedLeads }: LeadActionsProps) {
       let finalListName: string;
 
       if (saveMode === 'new') {
-        // Create new list
+        console.log('Creating new list:', { name: listName.trim(), user_id: user.id });
+        
         const { data: list, error: listError } = await supabase
           .from('lists')
           .insert({
@@ -202,7 +218,12 @@ export function LeadActions({ leads, selectedLeads }: LeadActionsProps) {
           .select()
           .single();
 
-        if (listError) throw listError;
+        if (listError) {
+          console.error('Error creating list:', listError);
+          throw new Error(`Erro ao criar lista: ${listError.message}`);
+        }
+        
+        console.log('List created:', list);
         listId = list.id;
         finalListName = listName.trim();
       } else {
@@ -223,6 +244,7 @@ export function LeadActions({ leads, selectedLeads }: LeadActionsProps) {
           description: 'Todos os leads selecionados já existem na lista',
           variant: 'destructive',
         });
+        setIsSaving(false);
         return;
       }
 
@@ -247,11 +269,18 @@ export function LeadActions({ leads, selectedLeads }: LeadActionsProps) {
         is_valid: true,
       }));
 
+      console.log('Inserting contacts:', contacts.length);
+      
       const { error: contactsError } = await supabase
         .from('contacts')
         .insert(contacts);
 
-      if (contactsError) throw contactsError;
+      if (contactsError) {
+        console.error('Error inserting contacts:', contactsError);
+        throw new Error(`Erro ao inserir contatos: ${contactsError.message}`);
+      }
+
+      console.log('Contacts inserted successfully');
 
       const skippedText = duplicateAnalysis?.duplicateCount 
         ? ` (${duplicateAnalysis.duplicateCount} duplicados ignorados)` 
@@ -269,9 +298,10 @@ export function LeadActions({ leads, selectedLeads }: LeadActionsProps) {
       setDuplicateAnalysis(null);
     } catch (error) {
       console.error('Error saving list:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Não foi possível salvar os contatos';
       toast({
         title: 'Erro ao salvar',
-        description: 'Não foi possível salvar os contatos',
+        description: errorMessage,
         variant: 'destructive',
       });
     } finally {
