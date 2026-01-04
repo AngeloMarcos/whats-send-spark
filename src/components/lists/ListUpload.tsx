@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -142,35 +142,39 @@ export function ListUpload({ onDataReady, onClear }: ListUploadProps) {
     onClear();
   };
 
-  const handleConfirm = () => {
-    if (!phoneColumn || rows.length === 0) return;
+  // Auto-sync data when phone column is selected
+  useEffect(() => {
+    if (phoneColumn && rows.length > 0) {
+      const contacts: ParsedContact[] = rows.map(row => {
+        const phone = formatToInternational(String(row[phoneColumn] ?? ''));
+        const name = nameColumn ? String(row[nameColumn] ?? '') : undefined;
+        
+        const extra_data: Record<string, unknown> = {};
+        headers.forEach(h => {
+          if (h !== phoneColumn && h !== nameColumn) {
+            extra_data[h] = row[h];
+          }
+        });
 
-    const contacts: ParsedContact[] = rows.map(row => {
-      const phone = formatToInternational(String(row[phoneColumn] ?? ''));
-      const name = nameColumn ? String(row[nameColumn] ?? '') : undefined;
-      
-      // Store all fields as extra_data
-      const extra_data: Record<string, unknown> = {};
-      headers.forEach(h => {
-        if (h !== phoneColumn && h !== nameColumn) {
-          extra_data[h] = row[h];
-        }
+        return {
+          phone,
+          name: name || undefined,
+          extra_data,
+          is_valid: validationResult?.validContacts.some(
+            vc => String(vc[phoneColumn]) === String(row[phoneColumn])
+          ) ?? true,
+        };
       });
 
-      return {
-        phone,
-        name: name || undefined,
-        extra_data,
-        is_valid: true,
-      };
-    });
+      const validContacts = contacts.filter(c => c.is_valid);
+      onDataReady({ contacts: validContacts, phoneColumn, nameColumn });
+    }
+  }, [rows, phoneColumn, nameColumn, headers, validationResult, onDataReady]);
 
-    onDataReady({ contacts, phoneColumn, nameColumn });
-  };
-
-  const validCount = validationResult?.summary.validCount ?? 0;
+  const validCount = validationResult?.summary.validCount ?? rows.length;
   const invalidCount = validationResult?.summary.invalidCount ?? 0;
   const fixableCount = validationResult?.summary.fixableCount ?? 0;
+
 
   if (rows.length === 0) {
     return (
@@ -355,13 +359,6 @@ export function ListUpload({ onDataReady, onClear }: ListUploadProps) {
         </Alert>
       )}
 
-      {/* Confirm button */}
-      {phoneColumn && validCount > 0 && (
-        <Button onClick={handleConfirm} className="w-full">
-          <CheckCircle2 className="mr-2 h-4 w-4" />
-          Confirmar {validCount} Contatos
-        </Button>
-      )}
     </div>
   );
 }

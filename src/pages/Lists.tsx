@@ -137,7 +137,7 @@ export default function Lists() {
 
   const handleDataReady = (data: { contacts: ParsedContact[] }) => {
     setUploadedContacts(data.contacts);
-    setHasUploadedFile(true);
+    setHasUploadedFile(data.contacts.length > 0);
   };
 
   const handleClearUpload = () => {
@@ -342,7 +342,7 @@ export default function Lists() {
                 <Button 
                   type="submit" 
                   className="w-full" 
-                  disabled={isSaving || (!editingList && !hasUploadedFile)}
+                  disabled={isSaving || (!editingList && uploadedContacts.length === 0)}
                 >
                   {isSaving ? (
                     <>
