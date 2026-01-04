@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { List, Contact } from '@/types/database';
@@ -135,10 +135,10 @@ export default function Lists() {
     }
   };
 
-  const handleDataReady = (data: { contacts: ParsedContact[] }) => {
+  const handleDataReady = useCallback((data: { contacts: ParsedContact[] }) => {
     setUploadedContacts(data.contacts);
     setHasUploadedFile(data.contacts.length > 0);
-  };
+  }, []);
 
   const handleClearUpload = () => {
     setUploadedContacts([]);

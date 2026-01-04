@@ -144,31 +144,31 @@ export function ListUpload({ onDataReady, onClear }: ListUploadProps) {
 
   // Auto-sync data when phone column is selected
   useEffect(() => {
-    if (phoneColumn && rows.length > 0) {
-      const contacts: ParsedContact[] = rows.map(row => {
-        const phone = formatToInternational(String(row[phoneColumn] ?? ''));
-        const name = nameColumn ? String(row[nameColumn] ?? '') : undefined;
-        
-        const extra_data: Record<string, unknown> = {};
-        headers.forEach(h => {
-          if (h !== phoneColumn && h !== nameColumn) {
-            extra_data[h] = row[h];
-          }
-        });
-
-        return {
-          phone,
-          name: name || undefined,
-          extra_data,
-          is_valid: validationResult?.validContacts.some(
-            vc => String(vc[phoneColumn]) === String(row[phoneColumn])
-          ) ?? true,
-        };
+    if (!phoneColumn || rows.length === 0) return;
+    
+    const contacts: ParsedContact[] = rows.map((row, index) => {
+      const phone = formatToInternational(String(row[phoneColumn] ?? ''));
+      const name = nameColumn ? String(row[nameColumn] ?? '') : undefined;
+      
+      const extra_data: Record<string, unknown> = {};
+      headers.forEach(h => {
+        if (h !== phoneColumn && h !== nameColumn) {
+          extra_data[h] = row[h];
+        }
       });
 
-      const validContacts = contacts.filter(c => c.is_valid);
-      onDataReady({ contacts: validContacts, phoneColumn, nameColumn });
-    }
+      return {
+        phone,
+        name: name || undefined,
+        extra_data,
+        is_valid: validationResult?.validContacts.some(
+          vc => String(vc[phoneColumn]) === String(row[phoneColumn])
+        ) ?? true,
+      };
+    });
+
+    const validContacts = contacts.filter(c => c.is_valid);
+    onDataReady({ contacts: validContacts, phoneColumn, nameColumn });
   }, [rows, phoneColumn, nameColumn, headers, validationResult, onDataReady]);
 
   const validCount = validationResult?.summary.validCount ?? rows.length;
@@ -324,11 +324,11 @@ export function ListUpload({ onDataReady, onClear }: ListUploadProps) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.slice(0, 5).map((row, i) => (
-                <TableRow key={i}>
-                  {headers.slice(0, 4).map(h => (
+              {rows.slice(0, 5).map((row, rowIndex) => (
+                <TableRow key={`row-${rowIndex}-${String(row[phoneColumn] ?? rowIndex)}`}>
+                  {headers.slice(0, 4).map((h, colIndex) => (
                     <TableCell 
-                      key={h} 
+                      key={`cell-${rowIndex}-${colIndex}`} 
                       className={
                         h === phoneColumn ? 'bg-primary/5 font-mono text-sm' : 
                         h === nameColumn ? 'bg-blue-500/5' : ''
