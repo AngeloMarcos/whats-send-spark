@@ -94,10 +94,10 @@ serve(async (req) => {
       });
     }
 
-    // Get user settings for webhook URL
+    // Get user settings for webhook URL and sending config
     const { data: settings, error: settingsError } = await supabaseClient
       .from('settings')
-      .select('n8n_webhook_url')
+      .select('n8n_webhook_url, send_interval_seconds, randomize_interval, max_messages_per_hour, max_messages_per_day, allowed_start_time, allowed_end_time, allowed_days, auto_pause_on_limit')
       .eq('user_id', user.id)
       .single();
 
@@ -107,6 +107,123 @@ serve(async (req) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
+
+    // Helper function to check if within allowed hours
+    const isWithinAllowedHours = (): { allowed: boolean; nextAllowedTime?: string } => {
+      const now = new Date();
+      const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      const currentDay = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][now.getDay()];
+      
+      const allowedDays = settings.allowed_days || ['mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+      const startTime = settings.allowed_start_time?.slice(0, 5) || '08:00';
+      const endTime = settings.allowed_end_time?.slice(0, 5) || '20:00';
+      
+      if (!allowedDays.includes(currentDay)) {
+        return { allowed: false, nextAllowedTime: startTime };
+      }
+      
+      if (currentTime < startTime || currentTime > endTime) {
+        return { allowed: false, nextAllowedTime: startTime };
+      }
+      
+      return { allowed: true };
+    };
+
+    // Helper function to get rate limits
+    const checkRateLimits = async (): Promise<{ allowed: boolean; hourlyCount: number; dailyCount: number; reason?: string }> => {
+      const now = new Date();
+      const hourKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}-${String(now.getHours()).padStart(2, '0')}`;
+      const dayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      
+      const hourlyLimit = settings.max_messages_per_hour || 30;
+      const dailyLimit = settings.max_messages_per_day || 200;
+
+      // Get or create rate tracking record
+      const { data: rateData } = await supabaseClient
+        .from('send_rate_tracking')
+        .select('id, hourly_count, daily_count')
+        .eq('user_id', user.id)
+        .eq('hour_key', hourKey)
+        .single();
+
+      let hourlyCount = 0;
+      let dailyCount = 0;
+
+      if (rateData) {
+        hourlyCount = rateData.hourly_count || 0;
+        dailyCount = rateData.daily_count || 0;
+      } else {
+        // Get daily count from previous hours
+        const { data: dailyData } = await supabaseClient
+          .from('send_rate_tracking')
+          .select('daily_count')
+          .eq('user_id', user.id)
+          .eq('day_key', dayKey)
+          .order('created_at', { ascending: false })
+          .limit(1);
+        
+        if (dailyData && dailyData.length > 0) {
+          dailyCount = dailyData[0].daily_count || 0;
+        }
+      }
+
+      if (hourlyCount >= hourlyLimit) {
+        return { allowed: false, hourlyCount, dailyCount, reason: 'hourly_limit' };
+      }
+
+      if (dailyCount >= dailyLimit) {
+        return { allowed: false, hourlyCount, dailyCount, reason: 'daily_limit' };
+      }
+
+      return { allowed: true, hourlyCount, dailyCount };
+    };
+
+    // Helper function to increment rate tracking
+    const incrementRateTracking = async (): Promise<void> => {
+      const now = new Date();
+      const hourKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}-${String(now.getHours()).padStart(2, '0')}`;
+      const dayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+      const { data: existing } = await supabaseClient
+        .from('send_rate_tracking')
+        .select('id, hourly_count, daily_count')
+        .eq('user_id', user.id)
+        .eq('hour_key', hourKey)
+        .single();
+
+      if (existing) {
+        await supabaseClient
+          .from('send_rate_tracking')
+          .update({
+            hourly_count: (existing.hourly_count || 0) + 1,
+            daily_count: (existing.daily_count || 0) + 1,
+            updated_at: now.toISOString(),
+          })
+          .eq('id', existing.id);
+      } else {
+        // Get current daily count
+        const { data: dailyData } = await supabaseClient
+          .from('send_rate_tracking')
+          .select('daily_count')
+          .eq('user_id', user.id)
+          .eq('day_key', dayKey)
+          .order('created_at', { ascending: false })
+          .limit(1);
+
+        const currentDailyCount = dailyData?.[0]?.daily_count || 0;
+
+        await supabaseClient
+          .from('send_rate_tracking')
+          .insert({
+            user_id: user.id,
+            campaign_id: campaignId,
+            hour_key: hourKey,
+            day_key: dayKey,
+            hourly_count: 1,
+            daily_count: currentDailyCount + 1,
+          });
+      }
+    };
 
     const webhookUrl = settings.n8n_webhook_url;
 
@@ -196,7 +313,81 @@ serve(async (req) => {
         console.log(`Campaign ${campaignId} is paused, not processing`);
         return new Response(JSON.stringify({ 
           paused: true,
+          reason: 'manual',
           message: 'Campanha está pausada'
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      // CHECK 1: Verify allowed hours
+      const hoursCheck = isWithinAllowedHours();
+      if (!hoursCheck.allowed && settings.auto_pause_on_limit) {
+        console.log(`Campaign ${campaignId} outside allowed hours`);
+        
+        // Auto-pause the campaign
+        await supabaseClient
+          .from('campaigns')
+          .update({ status: 'paused' })
+          .eq('id', campaignId);
+        
+        // Log the pause
+        await supabaseClient
+          .from('campaign_logs')
+          .insert({
+            campaign_id: campaignId,
+            contact_phone: 'SYSTEM',
+            contact_name: 'Sistema',
+            status: 'paused',
+            error_message: 'Fora do horário permitido',
+            sent_at: new Date().toISOString(),
+          });
+
+        return new Response(JSON.stringify({ 
+          paused: true,
+          reason: 'outside_hours',
+          message: `Fora do horário permitido. Retoma às ${hoursCheck.nextAllowedTime}`,
+          resumeAt: hoursCheck.nextAllowedTime,
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      // CHECK 2: Verify rate limits
+      const rateLimits = await checkRateLimits();
+      if (!rateLimits.allowed && settings.auto_pause_on_limit) {
+        console.log(`Campaign ${campaignId} hit rate limit: ${rateLimits.reason}`);
+        
+        // Auto-pause the campaign
+        await supabaseClient
+          .from('campaigns')
+          .update({ status: 'paused' })
+          .eq('id', campaignId);
+        
+        const limitMessage = rateLimits.reason === 'hourly_limit' 
+          ? 'Limite por hora atingido' 
+          : 'Limite diário atingido';
+        
+        // Log the pause
+        await supabaseClient
+          .from('campaign_logs')
+          .insert({
+            campaign_id: campaignId,
+            contact_phone: 'SYSTEM',
+            contact_name: 'Sistema',
+            status: 'paused',
+            error_message: limitMessage,
+            sent_at: new Date().toISOString(),
+          });
+
+        return new Response(JSON.stringify({ 
+          paused: true,
+          reason: rateLimits.reason,
+          message: limitMessage,
+          hourlyCount: rateLimits.hourlyCount,
+          dailyCount: rateLimits.dailyCount,
+          hourlyLimit: settings.max_messages_per_hour || 30,
+          dailyLimit: settings.max_messages_per_day || 200,
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
@@ -354,6 +545,9 @@ serve(async (req) => {
             contacts_sent: (campaign.contacts_sent || 0) + 1 
           })
           .eq('id', campaignId);
+
+        // Increment rate tracking
+        await incrementRateTracking();
 
         // Insert log for real-time monitoring
         await supabaseClient

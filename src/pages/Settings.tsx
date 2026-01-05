@@ -10,10 +10,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
 import { SkeletonSettingsCard } from '@/components/ui/loading-skeletons';
-import { Loader2, Save, Webhook, LogOut, Zap, CheckCircle, XCircle } from 'lucide-react';
+import { Loader2, Save, Webhook, LogOut, Zap, CheckCircle, XCircle, Send } from 'lucide-react';
 import { TestContactsSection } from '@/components/settings/TestContactsSection';
+import { SendingConfigSection } from '@/components/settings/SendingConfigSection';
 
 // Validate webhook URL for security (SSRF prevention)
 function validateWebhookUrl(url: string): { valid: boolean; error?: string } {
@@ -281,6 +283,20 @@ export default function Settings() {
                 </Button>
               </CardContent>
             </Card>
+
+            {/* Sending Configuration */}
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <Send className="h-5 w-5 text-primary" />
+                <h2 className="text-lg font-semibold">Configurações de Envio</h2>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Configure intervalos, limites e horários para proteger sua conta contra bloqueios
+              </p>
+              <SendingConfigSection />
+            </div>
+
+            <Separator className="my-6" />
 
             {/* Test Contacts */}
             <TestContactsSection />
