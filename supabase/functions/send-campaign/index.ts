@@ -74,7 +74,7 @@ serve(async (req) => {
 
     console.log(`Authenticated user: ${user.id}`);
 
-    const { campaignId, webhookUrl, sheetId, sheetTabId, message, sendNow, scheduledAt, sendLimit } = await req.json();
+    const { campaignId, webhookUrl, sheetId, sheetTabId, message, sendNow, scheduledAt, sendLimit, isTestMode, testContactPhone } = await req.json();
 
     if (!webhookUrl) {
       throw new Error("Webhook URL is required");
@@ -107,7 +107,7 @@ serve(async (req) => {
       }
     }
 
-    console.log(`Sending campaign ${campaignId} to webhook: ${webhookUrl}`);
+    console.log(`Sending campaign ${campaignId} to webhook: ${webhookUrl}${isTestMode ? ' [TEST MODE]' : ''}`);
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
@@ -124,6 +124,8 @@ serve(async (req) => {
           sendNow,
           scheduledAt,
           sendLimit,
+          isTestMode: isTestMode || false,
+          testContactPhone: testContactPhone || null,
         }),
         signal: controller.signal,
       });
