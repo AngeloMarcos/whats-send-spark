@@ -1,8 +1,13 @@
 import { useState, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { MessageSquare, Check, CheckCheck, User } from 'lucide-react';
+import { MessageSquare, CheckCheck, User, AlertTriangle, AlertCircle, CheckCircle } from 'lucide-react';
 import { format } from 'date-fns';
+import { 
+  getCharacterStatus, 
+  WHATSAPP_CHAR_LIMIT,
+  IDEAL_CHAR_LIMIT 
+} from '@/lib/templateVariables';
 
 interface Contact {
   id?: string;
@@ -16,6 +21,20 @@ interface MessagePreviewProps {
   contacts?: Contact[];
 }
 
+// Realistic sample data for preview
+const realisticSampleData = {
+  nome: 'Maria Fernanda Costa',
+  primeiro_nome: 'Maria',
+  telefone: '(11) 98765-4321',
+  email: 'maria.costa@techsolutions.com.br',
+  empresa: 'Tech Solutions Ltda',
+  cidade: 'São Paulo',
+  segmento: 'Tecnologia',
+  nome_vendedor: 'Carlos Vendas',
+  link_calendario: 'calendly.com/carlos',
+  link_material: 'link.empresa.com/material',
+};
+
 export function MessagePreview({ message, contacts = [] }: MessagePreviewProps) {
   const [selectedContactIndex, setSelectedContactIndex] = useState<string>('sample');
 
@@ -24,17 +43,33 @@ export function MessagePreview({ message, contacts = [] }: MessagePreviewProps) 
     if (!message) return '';
 
     let result = message;
+    const now = new Date();
     
     if (selectedContactIndex === 'sample') {
-      // Show with placeholder examples
-      result = result.replace(/{{nome}}/gi, 'João');
-      result = result.replace(/{{telefone}}/gi, '(11) 99999-9999');
-      result = result.replace(/{{email}}/gi, 'joao@email.com');
+      // Show with realistic placeholder examples
+      result = result.replace(/{{nome}}/gi, realisticSampleData.nome);
+      result = result.replace(/{{primeiro_nome}}/gi, realisticSampleData.primeiro_nome);
+      result = result.replace(/{{telefone}}/gi, realisticSampleData.telefone);
+      result = result.replace(/{{email}}/gi, realisticSampleData.email);
+      result = result.replace(/{{empresa}}/gi, realisticSampleData.empresa);
+      result = result.replace(/{{cidade}}/gi, realisticSampleData.cidade);
+      result = result.replace(/{{segmento}}/gi, realisticSampleData.segmento);
+      result = result.replace(/{{data_atual}}/gi, format(now, 'dd/MM/yyyy'));
+      result = result.replace(/{{data}}/gi, format(now, 'dd/MM'));
+      result = result.replace(/{{hora}}/gi, format(now, 'HH:mm'));
+      result = result.replace(/{{nome_vendedor}}/gi, realisticSampleData.nome_vendedor);
+      result = result.replace(/{{link_calendario}}/gi, realisticSampleData.link_calendario);
+      result = result.replace(/{{link_material}}/gi, realisticSampleData.link_material);
+      // Replace any remaining unknown variables
       result = result.replace(/{{[^}]+}}/g, '[variável]');
     } else {
       const contact = contacts[parseInt(selectedContactIndex)];
       if (contact) {
+        // Extract first name
+        const firstName = contact.name?.split(' ')[0] || 'Nome';
+        
         result = result.replace(/{{nome}}/gi, contact.name || 'Nome');
+        result = result.replace(/{{primeiro_nome}}/gi, firstName);
         result = result.replace(/{{telefone}}/gi, contact.phone);
         
         // Replace extra_data variables
@@ -44,6 +79,11 @@ export function MessagePreview({ message, contacts = [] }: MessagePreviewProps) 
             result = result.replace(regex, String(value || ''));
           });
         }
+        
+        // Date/time variables
+        result = result.replace(/{{data_atual}}/gi, format(now, 'dd/MM/yyyy'));
+        result = result.replace(/{{data}}/gi, format(now, 'dd/MM'));
+        result = result.replace(/{{hora}}/gi, format(now, 'HH:mm'));
         
         // Replace any remaining placeholders
         result = result.replace(/{{[^}]+}}/g, '[não encontrado]');
@@ -74,8 +114,8 @@ export function MessagePreview({ message, contacts = [] }: MessagePreviewProps) 
   };
 
   const characterCount = message.length;
-  const isLongMessage = characterCount > 1000;
-  const segmentCount = Math.ceil(characterCount / 160);
+  const characterStatus = getCharacterStatus(characterCount);
+  const progressPercent = Math.min((characterCount / WHATSAPP_CHAR_LIMIT) * 100, 100);
 
   return (
     <Card className="overflow-hidden">
@@ -99,7 +139,7 @@ export function MessagePreview({ message, contacts = [] }: MessagePreviewProps) 
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="sample">
-                  <span className="text-muted-foreground">Exemplo genérico</span>
+                  <span className="text-muted-foreground">📱 Exemplo realista</span>
                 </SelectItem>
                 {contacts.slice(0, 10).map((contact, index) => (
                   <SelectItem key={index} value={index.toString()}>
@@ -139,21 +179,47 @@ export function MessagePreview({ message, contacts = [] }: MessagePreviewProps) 
           )}
         </div>
 
-        {/* Character Counter */}
-        <div className="flex items-center justify-between text-xs border-t pt-3">
-          <div className="flex items-center gap-4">
-            <span className={`${isLongMessage ? 'text-amber-500' : 'text-muted-foreground'}`}>
-              {characterCount} caracteres
+        {/* Smart Character Counter */}
+        <div className="space-y-2 border-t pt-3">
+          {/* Progress Bar */}
+          <div className="flex items-center gap-2">
+            <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+              <div 
+                className={`h-full transition-all duration-300 ${characterStatus.bgColor}`}
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
+            <span className={`text-xs font-medium ${characterStatus.color}`}>
+              {characterCount}/{WHATSAPP_CHAR_LIMIT}
             </span>
-            {characterCount > 0 && (
+          </div>
+          
+          {/* Status Message */}
+          <div className="flex items-center justify-between text-xs">
+            <div className="flex items-center gap-1">
+              {characterStatus.status === 'error' ? (
+                <span className="flex items-center gap-1 text-red-500 font-medium">
+                  <AlertTriangle className="h-3 w-3" />
+                  {characterStatus.message}
+                </span>
+              ) : characterStatus.status === 'warning' ? (
+                <span className="flex items-center gap-1 text-amber-500">
+                  <AlertCircle className="h-3 w-3" />
+                  {characterStatus.message}
+                </span>
+              ) : (
+                <span className="flex items-center gap-1 text-green-500">
+                  <CheckCircle className="h-3 w-3" />
+                  {characterStatus.message}
+                </span>
+              )}
+            </div>
+            {characterCount > 0 && characterCount <= IDEAL_CHAR_LIMIT && (
               <span className="text-muted-foreground">
-                ~{segmentCount} segmento{segmentCount > 1 ? 's' : ''} SMS
+                💡 Tamanho ideal
               </span>
             )}
           </div>
-          <span className={isLongMessage ? 'text-amber-500 font-medium' : 'text-primary'}>
-            {isLongMessage ? '⚠️ Mensagem longa' : '✓ Tamanho OK'}
-          </span>
         </div>
 
         {/* Original with Placeholders (collapsed view) */}

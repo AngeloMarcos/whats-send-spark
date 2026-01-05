@@ -249,7 +249,10 @@ export default function Templates() {
                 <SelectItem value="all">Todas</SelectItem>
                 {templateCategories.map((cat) => (
                   <SelectItem key={cat.value} value={cat.value}>
-                    {cat.label}
+                    <div className="flex items-center gap-2">
+                      <span>{cat.icon}</span>
+                      <span>{cat.label}</span>
+                    </div>
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -318,6 +321,7 @@ export default function Templates() {
                         </div>
                         <div className="flex items-center gap-2 flex-wrap">
                           <Badge variant="secondary" className={`text-xs ${categoryInfo.color}`}>
+                            <span className="mr-1">{categoryInfo.icon}</span>
                             {categoryInfo.label}
                           </Badge>
                           {variables.length > 0 && (
