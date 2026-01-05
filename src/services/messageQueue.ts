@@ -90,17 +90,28 @@ export function generateSchedulePreview(
   totalContacts: number,
   config: SendingConfig
 ): QueueSchedulePreview {
-  const avgInterval = config.send_interval_seconds;
+  // Validação de segurança para evitar crashes
+  const safeConfig = {
+    send_interval_seconds: config?.send_interval_seconds ?? 30,
+    max_messages_per_hour: config?.max_messages_per_hour ?? 60,
+    max_messages_per_day: config?.max_messages_per_day ?? 500,
+    allowed_start_time: config?.allowed_start_time ?? '08:00',
+    allowed_end_time: config?.allowed_end_time ?? '18:00',
+    randomize_interval: config?.randomize_interval ?? false,
+    allowed_days: config?.allowed_days ?? ['mon', 'tue', 'wed', 'thu', 'fri'],
+  };
+
+  const avgInterval = safeConfig.send_interval_seconds;
   const msgsPerHour = Math.min(
     Math.floor(3600 / avgInterval),
-    config.max_messages_per_hour
+    safeConfig.max_messages_per_hour
   );
   
   // Horas de trabalho por dia
-  const [startH, startM] = config.allowed_start_time.split(':').map(Number);
-  const [endH, endM] = config.allowed_end_time.split(':').map(Number);
+  const [startH, startM] = safeConfig.allowed_start_time.split(':').map(Number);
+  const [endH, endM] = safeConfig.allowed_end_time.split(':').map(Number);
   const hoursPerDay = (endH + endM/60) - (startH + startM/60);
-  const msgsPerDay = Math.min(msgsPerHour * hoursPerDay, config.max_messages_per_day);
+  const msgsPerDay = Math.min(msgsPerHour * hoursPerDay, safeConfig.max_messages_per_day);
   
   const estimatedDays = Math.ceil(totalContacts / msgsPerDay);
   const estimatedDurationMinutes = (totalContacts * avgInterval) / 60;
@@ -109,23 +120,23 @@ export function generateSchedulePreview(
   const now = new Date();
   let estimatedEndTime = now;
   
-  if (isWithinAllowedHours(config)) {
+  if (isWithinAllowedHours({ ...config, ...safeConfig })) {
     estimatedEndTime = addSeconds(now, totalContacts * avgInterval);
   } else {
-    estimatedEndTime = getNextAllowedTime(config);
+    estimatedEndTime = getNextAllowedTime({ ...config, ...safeConfig });
     estimatedEndTime = addSeconds(estimatedEndTime, totalContacts * avgInterval);
   }
 
   return {
     totalMessages: totalContacts,
     intervalSeconds: avgInterval,
-    isRandomized: config.randomize_interval,
+    isRandomized: safeConfig.randomize_interval,
     estimatedDurationMinutes,
     estimatedEndTime,
     msgsPerHour,
     estimatedDays,
-    allowedStartTime: config.allowed_start_time,
-    allowedEndTime: config.allowed_end_time,
+    allowedStartTime: safeConfig.allowed_start_time,
+    allowedEndTime: safeConfig.allowed_end_time,
   };
 }
 
