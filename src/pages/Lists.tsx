@@ -91,6 +91,7 @@ export default function Lists() {
   };
   useEffect(() => {
     if (user) fetchLists();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   const fetchLists = async () => {
@@ -200,7 +201,7 @@ export default function Lists() {
             list_id: newList.id,
             phone: c.phone,
             name: c.name || null,
-            extra_data: c.extra_data as unknown as Record<string, never>,
+            extra_data: c.extra_data ? JSON.parse(JSON.stringify(c.extra_data)) : null,
             is_valid: c.is_valid,
           }));
 
