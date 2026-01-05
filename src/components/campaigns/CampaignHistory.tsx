@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { SkeletonTableRows } from '@/components/ui/loading-skeletons';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
-import { RefreshCw, Loader2, History, StopCircle, Trash2, Search, Download, ChevronDown, ChevronUp, MessageSquare, CheckCircle, XCircle, Clock, Activity } from 'lucide-react';
+import { RefreshCw, Loader2, History, StopCircle, Trash2, Search, Download, ChevronDown, ChevronUp, MessageSquare, CheckCircle, XCircle, Clock, Activity, Play } from 'lucide-react';
 import { format, isWithinInterval, startOfDay, endOfDay, subDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { supabase } from '@/integrations/supabase/client';
@@ -135,6 +135,107 @@ export function CampaignHistory({ campaigns, onRefresh, isLoading, onOpenMonitor
       toast({
         title: 'Erro ao excluir',
         description: 'Não foi possível excluir a campanha.',
+        variant: 'destructive',
+      });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleResumeCampaign = async (campaignId: string) => {
+    setActionLoading(campaignId);
+    try {
+      // 1. Buscar dados da campanha
+      const { data: campaign, error: campaignError } = await supabase
+        .from('campaigns')
+        .select('*, list:lists(*)')
+        .eq('id', campaignId)
+        .single();
+
+      if (campaignError || !campaign) throw new Error('Campanha não encontrada');
+      if (!campaign.list_id) throw new Error('Lista não encontrada');
+
+      // 2. Buscar contatos da lista
+      const { data: contacts, error: contactsError } = await supabase
+        .from('contacts')
+        .select('id, name, phone, email, extra_data')
+        .eq('list_id', campaign.list_id)
+        .eq('is_valid', true)
+        .limit(campaign.send_limit || 1000);
+
+      if (contactsError) throw contactsError;
+      if (!contacts?.length) throw new Error('Nenhum contato encontrado na lista');
+
+      // 3. Buscar telefones já enviados nesta campanha
+      const phones = contacts.map(c => c.phone);
+      const { data: alreadySent } = await supabase
+        .from('campaign_queue')
+        .select('contact_phone')
+        .eq('campaign_id', campaignId)
+        .eq('status', 'sent');
+
+      const sentPhones = new Set(alreadySent?.map(s => s.contact_phone) || []);
+
+      // 4. Filtrar contatos não enviados
+      const contactsToSend = contacts.filter(c => !sentPhones.has(c.phone));
+
+      if (contactsToSend.length === 0) {
+        toast({
+          title: 'Campanha já concluída',
+          description: 'Todos os contatos já foram enviados.',
+        });
+        setActionLoading(null);
+        return;
+      }
+
+      // 5. Limpar itens pendentes antigos da fila
+      await supabase
+        .from('campaign_queue')
+        .delete()
+        .eq('campaign_id', campaignId)
+        .in('status', ['pending', 'error']);
+
+      // 6. Inserir novos contatos na fila
+      const queueItems = contactsToSend.map(c => ({
+        campaign_id: campaignId,
+        contact_name: c.name,
+        contact_phone: c.phone,
+        contact_data: { ...((c.extra_data as Record<string, unknown>) || {}), email: c.email },
+        status: 'pending',
+      }));
+
+      const { error: insertError } = await supabase
+        .from('campaign_queue')
+        .insert(queueItems);
+
+      if (insertError) throw insertError;
+
+      // 7. Atualizar status da campanha
+      const { error: updateError } = await supabase
+        .from('campaigns')
+        .update({ 
+          status: 'sending',
+          contacts_total: (campaign.contacts_sent || 0) + contactsToSend.length,
+        })
+        .eq('id', campaignId);
+
+      if (updateError) throw updateError;
+
+      toast({
+        title: 'Campanha retomada!',
+        description: `${contactsToSend.length} contatos na fila. ${sentPhones.size} já enviados (ignorados).`,
+      });
+
+      onRefresh();
+      
+      // Abrir monitor
+      if (onOpenMonitor) {
+        onOpenMonitor(campaignId);
+      }
+    } catch (error) {
+      toast({
+        title: 'Erro ao retomar',
+        description: error instanceof Error ? error.message : 'Erro desconhecido',
         variant: 'destructive',
       });
     } finally {
@@ -395,6 +496,26 @@ export function CampaignHistory({ campaigns, onRefresh, isLoading, onOpenMonitor
                                     </Button>
                                   </TooltipTrigger>
                                   <TooltipContent>Pausar campanha</TooltipContent>
+                                </Tooltip>
+                              )}
+                              {campaign.status === 'paused' && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => handleResumeCampaign(campaign.id)}
+                                      disabled={isActionLoading}
+                                      className="text-primary hover:text-primary hover:bg-primary/10"
+                                    >
+                                      {isActionLoading ? (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                      ) : (
+                                        <Play className="h-4 w-4" />
+                                      )}
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Retomar campanha</TooltipContent>
                                 </Tooltip>
                               )}
                               {canDelete && (
