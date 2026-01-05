@@ -169,7 +169,9 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
         const workbook = XLSX.read(data, { type: 'binary' });
         const sheetName = workbook.SheetNames[0];
         const sheet = workbook.Sheets[sheetName];
-        const json: ContactRow[] = XLSX.utils.sheet_to_json(sheet);
+        const json: ContactRow[] = XLSX.utils.sheet_to_json(sheet, { 
+          raw: false  // Força todos os valores serem strings, evitando perda de precisão em números grandes
+        });
 
         setRows(json);
         const cols = json.length > 0 ? Object.keys(json[0]) : [];
