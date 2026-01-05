@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { toast as sonnerToast } from 'sonner';
-import { Play, CheckCircle, Pause, AlertTriangle, XCircle } from 'lucide-react';
 export interface QueueItem {
   id: string;
   contact_name: string | null;
@@ -129,6 +128,21 @@ export const useQueueDispatcher = () => {
         if (error) throw error;
       }
 
+      // Fetch inserted items to get real IDs
+      const { data: insertedItems } = await supabase
+        .from('campaign_queue')
+        .select('id, contact_name, contact_phone')
+        .eq('campaign_id', campaignId)
+        .eq('status', 'pending')
+        .order('created_at', { ascending: true });
+
+      const queueWithRealIds: QueueItem[] = insertedItems?.map(item => ({
+        id: item.id,
+        contact_name: item.contact_name,
+        contact_phone: item.contact_phone,
+        status: 'pending' as const,
+      })) || [];
+
       // Determine initial status based on scheduling
       const initialStatus = scheduledAt ? 'scheduled' : 'sending';
 
@@ -152,12 +166,7 @@ export const useQueueDispatcher = () => {
           excludedCount,
           intervalMinutes,
           isRunning: false,
-          queue: queueItems.map((item, idx) => ({
-            id: `temp-${idx}`,
-            contact_name: item.contact_name,
-            contact_phone: item.contact_phone,
-            status: 'pending' as const,
-          })),
+          queue: queueWithRealIds,
         });
 
         sonnerToast.success('Campanha agendada!', {
@@ -174,12 +183,7 @@ export const useQueueDispatcher = () => {
         excludedCount,
         intervalMinutes,
         isRunning: true,
-        queue: queueItems.map((item, idx) => ({
-          id: `temp-${idx}`,
-          contact_name: item.contact_name,
-          contact_phone: item.contact_phone,
-          status: 'pending' as const,
-        })),
+        queue: queueWithRealIds,
       });
 
       // Notification: Campaign started
