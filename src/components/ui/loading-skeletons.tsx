@@ -123,3 +123,48 @@ export function SkeletonTabs() {
     </div>
   );
 }
+
+// Skeleton for CampaignSchedulePreview
+export function SkeletonSchedulePreview() {
+  return (
+    <Card className="border-primary/20 bg-primary/5">
+      <CardHeader className="pb-3">
+        <div className="flex items-center gap-2">
+          <Skeleton className="h-5 w-5 rounded" />
+          <Skeleton className="h-5 w-40" />
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Grid de 4 estatísticas */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="flex flex-col items-center p-3 bg-background rounded-lg border">
+              <Skeleton className="h-5 w-5 rounded mb-1" />
+              <Skeleton className="h-8 w-12 my-1" />
+              <Skeleton className="h-3 w-16" />
+            </div>
+          ))}
+        </div>
+
+        {/* Detalhes */}
+        <div className="space-y-2">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="flex justify-between items-center">
+              <Skeleton className="h-4 w-32" />
+              <Skeleton className="h-6 w-20 rounded-full" />
+            </div>
+          ))}
+        </div>
+
+        {/* Barra de progresso */}
+        <div className="pt-2">
+          <Skeleton className="h-2 w-full rounded-full" />
+          <div className="flex justify-between mt-1">
+            <Skeleton className="h-3 w-24" />
+            <Skeleton className="h-3 w-28" />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
