@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { List, Template, Campaign } from '@/types/database';
@@ -10,7 +10,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
-import { Send, Loader2, Sparkles, Wand2 } from 'lucide-react';
+import { Send, Loader2, Sparkles, Wand2, FlaskConical } from 'lucide-react';
+import { TestModeBanner } from './TestModeBanner';
 
 interface CampaignFormProps {
   lists: List[];
@@ -24,6 +25,8 @@ export function CampaignForm({ lists, templates, onMessageChange, onCampaignCrea
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isTestMode, setIsTestMode] = useState(false);
+  const [defaultTestContact, setDefaultTestContact] = useState<{ phone: string; name: string } | null>(null);
   const [formData, setFormData] = useState({
     name: '',
     list_id: '',
@@ -35,6 +38,26 @@ export function CampaignForm({ lists, templates, onMessageChange, onCampaignCrea
     use_ai: false,
     ai_prompt: '',
   });
+
+  // Fetch default test contact
+  useEffect(() => {
+    const fetchDefaultTestContact = async () => {
+      if (!user) return;
+      
+      const { data } = await supabase
+        .from('test_contacts')
+        .select('phone, name')
+        .eq('user_id', user.id)
+        .eq('is_default', true)
+        .single();
+      
+      if (data) {
+        setDefaultTestContact(data);
+      }
+    };
+    
+    fetchDefaultTestContact();
+  }, [user]);
 
   const handleTemplateChange = (templateId: string) => {
     const template = templates.find(t => t.id === templateId);
@@ -105,6 +128,16 @@ export function CampaignForm({ lists, templates, onMessageChange, onCampaignCrea
       return;
     }
 
+    // Validate test contact if test mode is active
+    if (isTestMode && !defaultTestContact) {
+      toast({
+        title: 'Contato de teste não configurado',
+        description: 'Acesse Configurações e adicione um contato de teste padrão',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       // Get settings for webhook URL
@@ -126,6 +159,9 @@ export function CampaignForm({ lists, templates, onMessageChange, onCampaignCrea
 
       // Get selected list
       const selectedList = lists.find(l => l.id === formData.list_id);
+      
+      // Test mode limits
+      const actualSendLimit = isTestMode ? 10 : (formData.send_limit ? parseInt(formData.send_limit) : null);
 
       // Create campaign
       const { data: campaign, error: campaignError } = await supabase
@@ -139,8 +175,9 @@ export function CampaignForm({ lists, templates, onMessageChange, onCampaignCrea
           status: formData.send_now ? 'sending' : 'scheduled',
           send_now: formData.send_now,
           scheduled_at: formData.scheduled_at || null,
-          send_limit: formData.send_limit ? parseInt(formData.send_limit) : null,
+          send_limit: actualSendLimit,
           contacts_total: selectedList?.contact_count || 0,
+          is_test_mode: isTestMode,
         })
         .select('*, list:lists(*), template:templates(*)')
         .single();
@@ -157,7 +194,9 @@ export function CampaignForm({ lists, templates, onMessageChange, onCampaignCrea
           message: formData.message,
           sendNow: formData.send_now,
           scheduledAt: formData.scheduled_at || null,
-          sendLimit: formData.send_limit ? parseInt(formData.send_limit) : null,
+          sendLimit: actualSendLimit,
+          isTestMode: isTestMode,
+          testContactPhone: isTestMode ? defaultTestContact?.phone : null,
         },
       });
 
@@ -194,6 +233,7 @@ export function CampaignForm({ lists, templates, onMessageChange, onCampaignCrea
         use_ai: false,
         ai_prompt: '',
       });
+      setIsTestMode(false);
       onMessageChange('');
     } catch (error: any) {
       toast({
@@ -264,6 +304,33 @@ export function CampaignForm({ lists, templates, onMessageChange, onCampaignCrea
               </SelectContent>
             </Select>
           </div>
+
+          {/* Test Mode Toggle */}
+          <div className="flex items-center justify-between rounded-lg border border-destructive/50 bg-destructive/5 p-4">
+            <div className="flex items-center gap-3">
+              <FlaskConical className="h-5 w-5 text-destructive" />
+              <div>
+                <Label className="text-destructive">Modo Teste</Label>
+                <p className="text-xs text-destructive/70">
+                  Envia para contato de teste, limite de 10 msgs
+                </p>
+              </div>
+            </div>
+            <Switch
+              checked={isTestMode}
+              onCheckedChange={setIsTestMode}
+              className="data-[state=checked]:bg-destructive"
+            />
+          </div>
+
+          {/* Test Mode Banner */}
+          {isTestMode && (
+            <TestModeBanner 
+              testContactPhone={defaultTestContact?.phone}
+              maxMessages={10}
+              intervalSeconds={5}
+            />
+          )}
 
           {/* AI Generation Toggle */}
           <div className="flex items-center justify-between rounded-lg border p-4">
