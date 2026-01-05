@@ -43,6 +43,8 @@ import {
   Users,
   FlaskConical,
   Eye,
+  Clock,
+  CalendarClock,
 } from 'lucide-react';
 import { Campaign, TestContact } from '@/types/database';
 import { processMessage } from '@/lib/templateVariables';
@@ -427,7 +429,7 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
     }
   };
 
-  const handleStartQueueDispatch = async (intervalMinutes: number) => {
+  const handleStartQueueDispatch = async (intervalMinutes: number, scheduledAt?: string) => {
     if (!user) return;
 
     setIsSubmitting(true);
@@ -501,6 +503,10 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
         });
       }
 
+      // Determine initial status based on scheduling
+      const isScheduled = !!scheduledAt;
+      const initialStatus = isScheduled ? 'scheduled' : 'sending';
+
       // Create campaign in database
       const { data: campaign, error: campaignError } = await supabase
         .from('campaigns')
@@ -509,9 +515,9 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
           name: formData.campaignName,
           message: formData.message,
           list_id: listId,
-          status: 'sending',
-          send_now: true,
-          scheduled_at: null,
+          status: initialStatus,
+          send_now: !isScheduled,
+          scheduled_at: scheduledAt || null,
           send_limit: formData.testMode ? Math.min(sendLimit || 10, 10) : sendLimit,
           contacts_total: contactsToProcess.length,
           send_interval_minutes: intervalMinutes,
@@ -532,7 +538,9 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
       const success = await queueDispatcher.initializeQueue(
         campaign.id,
         contactsToProcess,
-        intervalMinutes
+        intervalMinutes,
+        true, // skipDuplicates
+        scheduledAt || null
       );
 
       if (success) {
@@ -558,6 +566,11 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  // Handler for scheduled dispatch
+  const handleStartScheduledDispatch = (intervalMinutes: number, scheduledAt: string) => {
+    handleStartQueueDispatch(intervalMinutes, scheduledAt);
   };
 
   // Helper to check if a row index is invalid
@@ -948,6 +961,64 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
                 />
               </div>
 
+              {/* Scheduling Section */}
+              <div className="space-y-4 rounded-lg border p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <Clock className="h-5 w-5 text-primary" />
+                    <div>
+                      <Label>Enviar agora</Label>
+                      <p className="text-xs text-muted-foreground">
+                        {formData.sendNow ? 'O disparo iniciará imediatamente' : 'Agende para uma data e hora específica'}
+                      </p>
+                    </div>
+                  </div>
+                  <Switch
+                    checked={formData.sendNow}
+                    onCheckedChange={(checked) => setFormData({ ...formData, sendNow: checked })}
+                  />
+                </div>
+
+                {!formData.sendNow && (
+                  <div className="space-y-3 pt-2">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-2">
+                        <Label htmlFor="scheduledDate">Data</Label>
+                        <Input
+                          id="scheduledDate"
+                          type="date"
+                          value={formData.scheduledAt ? formData.scheduledAt.split('T')[0] : ''}
+                          min={new Date().toISOString().split('T')[0]}
+                          onChange={(e) => {
+                            const time = formData.scheduledAt?.split('T')[1] || '09:00';
+                            setFormData({ ...formData, scheduledAt: `${e.target.value}T${time}` });
+                          }}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="scheduledTime">Hora</Label>
+                        <Input
+                          id="scheduledTime"
+                          type="time"
+                          value={formData.scheduledAt ? formData.scheduledAt.split('T')[1] || '09:00' : '09:00'}
+                          onChange={(e) => {
+                            const date = formData.scheduledAt?.split('T')[0] || new Date().toISOString().split('T')[0];
+                            setFormData({ ...formData, scheduledAt: `${date}T${e.target.value}` });
+                          }}
+                        />
+                      </div>
+                    </div>
+                    
+                    {formData.scheduledAt && (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 p-2 rounded">
+                        <CalendarClock className="h-4 w-4" />
+                        Agendado para: {new Date(formData.scheduledAt).toLocaleString('pt-BR')}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
               {/* Test Mode Section */}
               <div className={`space-y-4 rounded-lg border p-4 ${formData.testMode ? 'border-yellow-500/50 bg-yellow-500/10' : ''}`}>
                 <div className="flex items-center justify-between">
@@ -1054,6 +1125,8 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
                   onRetryFailed={queueDispatcher.retryFailed}
                   totalContacts={validCount > 0 ? validCount : rows.length}
                   disabled={isSubmitting || !formData.campaignName || !formData.message}
+                  scheduledAt={formData.sendNow ? null : formData.scheduledAt || null}
+                  onStartScheduled={handleStartScheduledDispatch}
                 />
               )}
             </form>

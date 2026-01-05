@@ -75,7 +75,8 @@ export const useQueueDispatcher = () => {
     campaignId: string,
     contacts: Array<{ name?: string; phone: string; [key: string]: unknown }>,
     intervalMinutes: number,
-    skipDuplicates: boolean = true
+    skipDuplicates: boolean = true,
+    scheduledAt?: string | null
   ) => {
     try {
       let contactsToSend = contacts;
@@ -128,15 +129,43 @@ export const useQueueDispatcher = () => {
         if (error) throw error;
       }
 
-      // Update campaign with interval
+      // Determine initial status based on scheduling
+      const initialStatus = scheduledAt ? 'scheduled' : 'sending';
+
+      // Update campaign with interval and schedule
       await supabase
         .from('campaigns')
         .update({ 
           send_interval_minutes: intervalMinutes,
-          status: 'sending',
+          status: initialStatus,
           contacts_total: contactsToSend.length,
+          scheduled_at: scheduledAt || null,
         })
         .eq('id', campaignId);
+
+      // If scheduled, don't start processing yet
+      if (scheduledAt) {
+        setState({
+          ...INITIAL_STATE,
+          campaignId,
+          totalContacts: contactsToSend.length,
+          excludedCount,
+          intervalMinutes,
+          isRunning: false,
+          queue: queueItems.map((item, idx) => ({
+            id: `temp-${idx}`,
+            contact_name: item.contact_name,
+            contact_phone: item.contact_phone,
+            status: 'pending' as const,
+          })),
+        });
+
+        sonnerToast.success('Campanha agendada!', {
+          description: `Disparo programado para ${new Date(scheduledAt).toLocaleString('pt-BR')}`,
+        });
+
+        return true;
+      }
 
       setState({
         ...INITIAL_STATE,
