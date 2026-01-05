@@ -72,18 +72,31 @@ serve(async (req) => {
       });
     }
 
-    console.log(`Authenticated user: ${user.id}`);
+    console.log(`✅ Authenticated user: ${user.id}`);
 
-    const { campaignId, webhookUrl, sheetId, sheetTabId, message, sendNow, scheduledAt, sendLimit, isTestMode, testContactPhone } = await req.json();
+    const requestBody = await req.json();
+    console.error('🔍 REQUEST BODY RECEIVED:', JSON.stringify(requestBody, null, 2));
+    
+    const { campaignId, webhookUrl, sheetId, sheetTabId, message, sendNow, scheduledAt, sendLimit, isTestMode, testContactPhone } = requestBody;
+
+    console.error('🔍 PARSED PARAMS:', {
+      campaignId: campaignId || 'MISSING',
+      webhookUrl: webhookUrl ? 'SET' : 'MISSING',
+      sendLimit,
+      isTestMode,
+      testContactPhone: testContactPhone || 'NOT SET',
+      timestamp: new Date().toISOString()
+    });
 
     if (!webhookUrl) {
+      console.error('❌ webhookUrl is missing!');
       throw new Error("Webhook URL is required");
     }
 
     // Validate webhook URL against SSRF
     const urlValidation = isValidWebhookUrl(webhookUrl);
     if (!urlValidation.valid) {
-      console.error(`Invalid webhook URL rejected: ${webhookUrl} - ${urlValidation.reason}`);
+      console.error(`❌ Invalid webhook URL rejected: ${webhookUrl} - ${urlValidation.reason}`);
       return new Response(JSON.stringify({ error: `Invalid webhook URL: ${urlValidation.reason}` }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -94,23 +107,40 @@ serve(async (req) => {
     let contacts: Array<Record<string, unknown>> = [];
     
     if (campaignId) {
+      console.error('🔍 Fetching campaign data for campaignId:', campaignId);
+      
       const { data: campaign, error: campaignError } = await supabaseClient
         .from('campaigns')
         .select('user_id, list_id')
         .eq('id', campaignId)
         .single();
       
+      console.error('🔍 CAMPAIGN QUERY RESULT:', {
+        campaign: campaign ? JSON.stringify(campaign) : 'NULL',
+        error: campaignError ? JSON.stringify(campaignError) : 'NONE',
+        timestamp: new Date().toISOString()
+      });
+      
       if (campaignError || !campaign || campaign.user_id !== user.id) {
-        console.error(`User ${user.id} attempted to access campaign ${campaignId} they don't own`);
+        console.error(`❌ User ${user.id} attempted to access campaign ${campaignId} they don't own or campaign not found`);
+        console.error('Campaign error details:', campaignError);
         return new Response(JSON.stringify({ error: 'Campaign not found or access denied' }), {
           status: 403,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
 
+      console.error('🔍 DEBUG CAMPAIGN:', {
+        id: campaignId,
+        list_id: campaign.list_id,
+        user_id: campaign.user_id,
+        timestamp: new Date().toISOString()
+      });
+
       // Validate list_id exists
       if (!campaign.list_id) {
-        console.error(`Campaign ${campaignId} has no list_id`);
+        console.error('❌ ERRO CRÍTICO: campaign.list_id é NULL!');
+        console.error('Campaign object completo:', JSON.stringify(campaign));
         return new Response(JSON.stringify({ error: 'Lista de contatos não encontrada para esta campanha' }), {
           status: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -118,7 +148,7 @@ serve(async (req) => {
       }
 
       // Fetch contacts from the list
-      console.log(`Fetching contacts for list: ${campaign.list_id}`);
+      console.error('🔍 Tentando buscar contatos para list_id:', campaign.list_id);
       
       const { data: contactsData, error: contactsError } = await supabaseClient
         .from('contacts')
@@ -127,16 +157,25 @@ serve(async (req) => {
         .eq('is_valid', true)
         .limit(10000);
       
+      console.error('🔍 CONTACTS QUERY RESULT:', {
+        contactsCount: contactsData?.length || 0,
+        hasError: !!contactsError,
+        error: contactsError ? JSON.stringify(contactsError) : 'NONE',
+        timestamp: new Date().toISOString()
+      });
+      
       if (contactsError) {
-        console.error('Error fetching contacts:', contactsError);
+        console.error('❌ ERRO ao buscar contatos:', JSON.stringify(contactsError));
         return new Response(JSON.stringify({ error: 'Erro ao buscar contatos da lista' }), {
           status: 500,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
       
+      console.error('🔍 Contatos encontrados:', contactsData?.length || 0);
+      
       if (!contactsData || contactsData.length === 0) {
-        console.error(`No valid contacts found for list: ${campaign.list_id}`);
+        console.error(`❌ No valid contacts found for list: ${campaign.list_id}`);
         return new Response(JSON.stringify({ error: 'Nenhum contato válido encontrado na lista' }), {
           status: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -149,7 +188,7 @@ serve(async (req) => {
         email: c.email || '',
         ...(c.extra_data as Record<string, unknown> || {})
       }));
-      console.log(`Found ${contacts.length} valid contacts`);
+      console.error('✅ Contatos mapeados com sucesso:', contacts.length);
     }
 
     // Normalize and apply send limit
@@ -163,17 +202,43 @@ serve(async (req) => {
       ? limitedContacts.map(c => ({ ...c, phone: testContactPhone }))
       : limitedContacts;
 
-    console.log(`Preparing to send campaign`, {
+    console.error('🔍 PREPARING FINAL PAYLOAD:', {
       campaignId,
-      listId: contacts.length > 0 ? 'found' : 'empty',
-      contactsFetched: contacts.length,
-      contactsToSend: contactsToSend.length,
+      contactsArrayLength: contacts.length,
+      contactsToSendLength: contactsToSend.length,
+      limitedContactsLength: limitedContacts.length,
       isTestMode: !!isTestMode,
       hasTestContactPhone: !!testContactPhone,
-      sendLimitApplied: sendLimitNum
+      sendLimitApplied: sendLimitNum,
+      timestamp: new Date().toISOString()
     });
 
-    console.log(`Sending ${contactsToSend.length} contacts to webhook: ${webhookUrl}${isTestMode ? ' [TEST MODE]' : ''}`);
+    // Build the payload
+    const webhookPayload = {
+      campaignId,
+      contacts: contactsToSend,
+      items: contactsToSend, // Alias for N8N compatibility
+      totalContacts: contactsToSend.length,
+      message,
+      sendNow: sendNow || true,
+      scheduledAt: scheduledAt || null,
+      sendLimit: sendLimitNum || null,
+      isTestMode: isTestMode || false,
+      testContactPhone: testContactPhone || null,
+      sheetId,
+      sheetTabId,
+    };
+
+    console.error('🔍 WEBHOOK PAYLOAD STRUCTURE:', {
+      hasContacts: Array.isArray(webhookPayload.contacts),
+      contactsLength: webhookPayload.contacts?.length || 0,
+      hasItems: Array.isArray(webhookPayload.items),
+      itemsLength: webhookPayload.items?.length || 0,
+      firstContact: webhookPayload.contacts?.[0] ? JSON.stringify(webhookPayload.contacts[0]) : 'EMPTY',
+      timestamp: new Date().toISOString()
+    });
+
+    console.error(`🚀 Sending ${contactsToSend.length} contacts to webhook: ${webhookUrl}${isTestMode ? ' [TEST MODE]' : ''}`);
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
@@ -182,20 +247,7 @@ serve(async (req) => {
       const response = await fetch(webhookUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          campaignId,
-          contacts: contactsToSend,
-          items: contactsToSend, // Alias for N8N compatibility
-          totalContacts: contactsToSend.length,
-          message,
-          sendNow: sendNow || true,
-          scheduledAt: scheduledAt || null,
-          sendLimit: sendLimitNum || null,
-          isTestMode: isTestMode || false,
-          testContactPhone: testContactPhone || null,
-          sheetId,
-          sheetTabId,
-        }),
+        body: JSON.stringify(webhookPayload),
         signal: controller.signal,
       });
 
