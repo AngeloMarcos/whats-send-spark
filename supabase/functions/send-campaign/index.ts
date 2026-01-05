@@ -108,42 +108,72 @@ serve(async (req) => {
         });
       }
 
-      // Fetch contacts from the list
-      if (campaign.list_id) {
-        console.log(`Fetching contacts for list: ${campaign.list_id}`);
-        
-        const { data: contactsData, error: contactsError } = await supabaseClient
-          .from('contacts')
-          .select('phone, name, email, extra_data')
-          .eq('list_id', campaign.list_id)
-          .eq('is_valid', true)
-          .limit(10000);
-        
-        if (contactsError) {
-          console.error('Error fetching contacts:', contactsError);
-        } else if (contactsData) {
-          contacts = contactsData.map(c => ({
-            phone: c.phone,
-            name: c.name || 'Lead',
-            email: c.email || '',
-            ...(c.extra_data as Record<string, unknown> || {})
-          }));
-          console.log(`Found ${contacts.length} valid contacts`);
-        }
+      // Validate list_id exists
+      if (!campaign.list_id) {
+        console.error(`Campaign ${campaignId} has no list_id`);
+        return new Response(JSON.stringify({ error: 'Lista de contatos não encontrada para esta campanha' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
       }
+
+      // Fetch contacts from the list
+      console.log(`Fetching contacts for list: ${campaign.list_id}`);
+      
+      const { data: contactsData, error: contactsError } = await supabaseClient
+        .from('contacts')
+        .select('phone, name, email, extra_data')
+        .eq('list_id', campaign.list_id)
+        .eq('is_valid', true)
+        .limit(10000);
+      
+      if (contactsError) {
+        console.error('Error fetching contacts:', contactsError);
+        return new Response(JSON.stringify({ error: 'Erro ao buscar contatos da lista' }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      
+      if (!contactsData || contactsData.length === 0) {
+        console.error(`No valid contacts found for list: ${campaign.list_id}`);
+        return new Response(JSON.stringify({ error: 'Nenhum contato válido encontrado na lista' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      contacts = contactsData.map(c => ({
+        phone: c.phone,
+        name: c.name || 'Lead',
+        email: c.email || '',
+        ...(c.extra_data as Record<string, unknown> || {})
+      }));
+      console.log(`Found ${contacts.length} valid contacts`);
     }
 
-    // Apply send limit
-    const limitedContacts = sendLimit 
-      ? contacts.slice(0, parseInt(sendLimit as string)) 
+    // Normalize and apply send limit
+    const sendLimitNum = sendLimit ? parseInt(String(sendLimit), 10) : null;
+    const limitedContacts = (sendLimitNum && !isNaN(sendLimitNum) && sendLimitNum > 0)
+      ? contacts.slice(0, sendLimitNum) 
       : contacts;
 
     // If test mode, replace all phones with test contact phone
-    const finalContacts = isTestMode && testContactPhone
+    const contactsToSend = isTestMode && testContactPhone
       ? limitedContacts.map(c => ({ ...c, phone: testContactPhone }))
       : limitedContacts;
 
-    console.log(`Sending ${finalContacts.length} contacts to webhook: ${webhookUrl}${isTestMode ? ' [TEST MODE]' : ''}`);
+    console.log(`Preparing to send campaign`, {
+      campaignId,
+      listId: contacts.length > 0 ? 'found' : 'empty',
+      contactsFetched: contacts.length,
+      contactsToSend: contactsToSend.length,
+      isTestMode: !!isTestMode,
+      hasTestContactPhone: !!testContactPhone,
+      sendLimitApplied: sendLimitNum
+    });
+
+    console.log(`Sending ${contactsToSend.length} contacts to webhook: ${webhookUrl}${isTestMode ? ' [TEST MODE]' : ''}`);
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
@@ -154,12 +184,13 @@ serve(async (req) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           campaignId,
-          contacts: finalContacts,
-          totalContacts: finalContacts.length,
+          contacts: contactsToSend,
+          items: contactsToSend, // Alias for N8N compatibility
+          totalContacts: contactsToSend.length,
           message,
-          sendNow,
-          scheduledAt,
-          sendLimit,
+          sendNow: sendNow || true,
+          scheduledAt: scheduledAt || null,
+          sendLimit: sendLimitNum || null,
           isTestMode: isTestMode || false,
           testContactPhone: testContactPhone || null,
           sheetId,
