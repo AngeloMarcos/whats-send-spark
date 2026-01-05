@@ -90,11 +90,13 @@ serve(async (req) => {
       });
     }
 
-    // Verify user owns this campaign
+    // Verify user owns this campaign and get list_id
+    let contacts: Array<Record<string, unknown>> = [];
+    
     if (campaignId) {
       const { data: campaign, error: campaignError } = await supabaseClient
         .from('campaigns')
-        .select('user_id')
+        .select('user_id, list_id')
         .eq('id', campaignId)
         .single();
       
@@ -105,12 +107,46 @@ serve(async (req) => {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
+
+      // Fetch contacts from the list
+      if (campaign.list_id) {
+        console.log(`Fetching contacts for list: ${campaign.list_id}`);
+        
+        const { data: contactsData, error: contactsError } = await supabaseClient
+          .from('contacts')
+          .select('phone, name, email, extra_data')
+          .eq('list_id', campaign.list_id)
+          .eq('is_valid', true)
+          .limit(10000);
+        
+        if (contactsError) {
+          console.error('Error fetching contacts:', contactsError);
+        } else if (contactsData) {
+          contacts = contactsData.map(c => ({
+            phone: c.phone,
+            name: c.name || 'Lead',
+            email: c.email || '',
+            ...(c.extra_data as Record<string, unknown> || {})
+          }));
+          console.log(`Found ${contacts.length} valid contacts`);
+        }
+      }
     }
 
-    console.log(`Sending campaign ${campaignId} to webhook: ${webhookUrl}${isTestMode ? ' [TEST MODE]' : ''}`);
+    // Apply send limit
+    const limitedContacts = sendLimit 
+      ? contacts.slice(0, parseInt(sendLimit as string)) 
+      : contacts;
+
+    // If test mode, replace all phones with test contact phone
+    const finalContacts = isTestMode && testContactPhone
+      ? limitedContacts.map(c => ({ ...c, phone: testContactPhone }))
+      : limitedContacts;
+
+    console.log(`Sending ${finalContacts.length} contacts to webhook: ${webhookUrl}${isTestMode ? ' [TEST MODE]' : ''}`);
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
 
     try {
       const response = await fetch(webhookUrl, {
@@ -118,14 +154,16 @@ serve(async (req) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           campaignId,
-          sheetId,
-          sheetTabId,
+          contacts: finalContacts,
+          totalContacts: finalContacts.length,
           message,
           sendNow,
           scheduledAt,
           sendLimit,
           isTestMode: isTestMode || false,
           testContactPhone: testContactPhone || null,
+          sheetId,
+          sheetTabId,
         }),
         signal: controller.signal,
       });
