@@ -6,11 +6,6 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Slider } from '@/components/ui/slider';
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible';
-import {
   Select,
   SelectContent,
   SelectItem,
@@ -121,50 +116,56 @@ export function SearchForm({ onSearch, isLoading }: SearchFormProps) {
             </div>
           </div>
 
-          <Collapsible open={showFilters} onOpenChange={setShowFilters}>
-            <CollapsibleTrigger asChild>
-              <Button type="button" variant="outline" size="sm" className="w-full">
-                <Filter className="mr-2 h-4 w-4" />
-                {showFilters ? 'Ocultar Filtros' : 'Mostrar Filtros Avançados'}
-              </Button>
-            </CollapsibleTrigger>
-            <CollapsibleContent className="pt-4 space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="space-y-2">
-                  <Label>Máximo de Resultados: {maxResults}</Label>
-                  <Slider
-                    value={[maxResults]}
-                    onValueChange={(value) => setMaxResults(value[0])}
-                    min={10}
-                    max={200}
-                    step={10}
-                  />
-                </div>
+          <div>
+            <Button 
+              type="button" 
+              variant="outline" 
+              size="sm" 
+              className="w-full"
+              onClick={() => setShowFilters(!showFilters)}
+            >
+              <Filter className="mr-2 h-4 w-4" />
+              {showFilters ? 'Ocultar Filtros' : 'Mostrar Filtros Avançados'}
+            </Button>
+            {showFilters && (
+              <div className="pt-4 space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label>Máximo de Resultados: {maxResults}</Label>
+                    <Slider
+                      value={[maxResults]}
+                      onValueChange={(value) => setMaxResults(value[0])}
+                      min={10}
+                      max={200}
+                      step={10}
+                    />
+                  </div>
 
-                <div className="space-y-2">
-                  <Label>Avaliação Mínima: {minRating > 0 ? `${minRating}⭐` : 'Qualquer'}</Label>
-                  <Slider
-                    value={[minRating]}
-                    onValueChange={(value) => setMinRating(value[0])}
-                    min={0}
-                    max={5}
-                    step={0.5}
-                  />
-                </div>
+                  <div className="space-y-2">
+                    <Label>Avaliação Mínima: {minRating > 0 ? `${minRating}⭐` : 'Qualquer'}</Label>
+                    <Slider
+                      value={[minRating]}
+                      onValueChange={(value) => setMinRating(value[0])}
+                      min={0}
+                      max={5}
+                      step={0.5}
+                    />
+                  </div>
 
-                <div className="flex items-center gap-2 pt-6">
-                  <Switch
-                    id="onlyWithPhone"
-                    checked={onlyWithPhone}
-                    onCheckedChange={setOnlyWithPhone}
-                  />
-                  <Label htmlFor="onlyWithPhone" className="text-sm">
-                    Apenas com telefone
-                  </Label>
+                  <div className="flex items-center gap-2 pt-6">
+                    <Switch
+                      id="onlyWithPhone"
+                      checked={onlyWithPhone}
+                      onCheckedChange={setOnlyWithPhone}
+                    />
+                    <Label htmlFor="onlyWithPhone" className="text-sm">
+                      Apenas com telefone
+                    </Label>
+                  </div>
                 </div>
               </div>
-            </CollapsibleContent>
-          </Collapsible>
+            )}
+          </div>
 
           <div className="flex items-center gap-4">
             <Button type="submit" className="flex-1" size="lg" disabled={isDisabled}>
