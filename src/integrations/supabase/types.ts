@@ -101,6 +101,9 @@ export type Database = {
           created_at: string
           error_message: string | null
           id: string
+          last_retry_at: string | null
+          retry_count: number | null
+          scheduled_for: string | null
           sent_at: string | null
           status: string
         }
@@ -112,6 +115,9 @@ export type Database = {
           created_at?: string
           error_message?: string | null
           id?: string
+          last_retry_at?: string | null
+          retry_count?: number | null
+          scheduled_for?: string | null
           sent_at?: string | null
           status?: string
         }
@@ -123,6 +129,9 @@ export type Database = {
           created_at?: string
           error_message?: string | null
           id?: string
+          last_retry_at?: string | null
+          retry_count?: number | null
+          scheduled_for?: string | null
           sent_at?: string | null
           status?: string
         }
@@ -340,25 +349,103 @@ export type Database = {
         }
         Relationships: []
       }
+      send_rate_tracking: {
+        Row: {
+          campaign_id: string | null
+          created_at: string | null
+          daily_count: number | null
+          day_key: string
+          hour_key: string
+          hourly_count: number | null
+          id: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          campaign_id?: string | null
+          created_at?: string | null
+          daily_count?: number | null
+          day_key: string
+          hour_key: string
+          hourly_count?: number | null
+          id?: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          campaign_id?: string | null
+          created_at?: string | null
+          daily_count?: number | null
+          day_key?: string
+          hour_key?: string
+          hourly_count?: number | null
+          id?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "send_rate_tracking_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "send_rate_tracking_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "contact_send_history"
+            referencedColumns: ["campaign_id"]
+          },
+        ]
+      }
       settings: {
         Row: {
+          allowed_days: string[] | null
+          allowed_end_time: string | null
+          allowed_start_time: string | null
+          auto_pause_on_limit: boolean | null
           created_at: string
           id: string
+          max_messages_per_day: number | null
+          max_messages_per_hour: number | null
           n8n_webhook_url: string | null
+          randomize_interval: boolean | null
+          send_interval_seconds: number | null
+          send_profile: string | null
           updated_at: string
           user_id: string
         }
         Insert: {
+          allowed_days?: string[] | null
+          allowed_end_time?: string | null
+          allowed_start_time?: string | null
+          auto_pause_on_limit?: boolean | null
           created_at?: string
           id?: string
+          max_messages_per_day?: number | null
+          max_messages_per_hour?: number | null
           n8n_webhook_url?: string | null
+          randomize_interval?: boolean | null
+          send_interval_seconds?: number | null
+          send_profile?: string | null
           updated_at?: string
           user_id: string
         }
         Update: {
+          allowed_days?: string[] | null
+          allowed_end_time?: string | null
+          allowed_start_time?: string | null
+          auto_pause_on_limit?: boolean | null
           created_at?: string
           id?: string
+          max_messages_per_day?: number | null
+          max_messages_per_hour?: number | null
           n8n_webhook_url?: string | null
+          randomize_interval?: boolean | null
+          send_interval_seconds?: number | null
+          send_profile?: string | null
           updated_at?: string
           user_id?: string
         }

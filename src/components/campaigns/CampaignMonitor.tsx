@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -24,12 +24,20 @@ import {
   RefreshCw,
   Radio,
   FlaskConical,
-  Loader2
+  Loader2,
+  Zap,
+  Timer,
+  Target
 } from 'lucide-react';
 import { useCampaignMonitor } from '@/hooks/useCampaignMonitor';
 import { useCampaignControl } from '@/hooks/useCampaignControl';
+import { useSendingConfig } from '@/hooks/useSendingConfig';
+import { useRateLimiting } from '@/hooks/useRateLimiting';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { CampaignAlerts } from './CampaignAlerts';
+import { SpeedAdjustModal } from './SpeedAdjustModal';
+import { updateCampaignSpeed, isWithinAllowedHours, getNextAllowedTime } from '@/services/messageQueue';
 
 interface CampaignMonitorProps {
   campaignId: string;
@@ -38,9 +46,75 @@ interface CampaignMonitorProps {
 export function CampaignMonitor({ campaignId }: CampaignMonitorProps) {
   const { logs, chartData, stats, isLive, campaign, toggleLive, refresh } = useCampaignMonitor(campaignId);
   const { pause, resume, isLoading: controlLoading } = useCampaignControl(campaignId);
+  const { config, isWithinAllowedHours: checkAllowedHours } = useSendingConfig();
+  const { status: rateLimitStatus, checkLimits } = useRateLimiting();
+  
+  const [showSpeedModal, setShowSpeedModal] = useState(false);
+  const [isAdjustingSpeed, setIsAdjustingSpeed] = useState(false);
+  const [secondsUntilNext, setSecondsUntilNext] = useState<number | null>(null);
+
+  // Check rate limits periodically
+  useEffect(() => {
+    if (campaign?.status === 'sending') {
+      checkLimits(config.max_messages_per_hour, config.max_messages_per_day);
+      const interval = setInterval(() => {
+        checkLimits(config.max_messages_per_hour, config.max_messages_per_day);
+      }, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [campaign?.status, config.max_messages_per_hour, config.max_messages_per_day, checkLimits]);
+
+  // Countdown timer for next message
+  useEffect(() => {
+    if (campaign?.status === 'sending' && campaign.send_interval_minutes) {
+      const intervalSeconds = campaign.send_interval_minutes * 60;
+      setSecondsUntilNext(intervalSeconds);
+      
+      const timer = setInterval(() => {
+        setSecondsUntilNext(prev => {
+          if (prev === null || prev <= 0) return intervalSeconds;
+          return prev - 1;
+        });
+      }, 1000);
+      
+      return () => clearInterval(timer);
+    }
+  }, [campaign?.status, campaign?.send_interval_minutes, stats.totalSent]);
 
   // Derive isPaused from campaign status
   const isPaused = campaign?.status === 'paused';
+  
+  // Calculate error rate
+  const errorRate = useMemo(() => {
+    const total = stats.totalSent + stats.totalErrors;
+    if (total === 0) return 0;
+    return (stats.totalErrors / total) * 100;
+  }, [stats.totalSent, stats.totalErrors]);
+
+  // Calculate msgs per hour
+  const msgsPerHour = useMemo(() => {
+    if (campaign?.send_interval_minutes) {
+      return Math.floor(60 / campaign.send_interval_minutes);
+    }
+    return Math.floor(3600 / config.send_interval_seconds);
+  }, [campaign?.send_interval_minutes, config.send_interval_seconds]);
+
+  const currentInterval = campaign?.send_interval_minutes 
+    ? campaign.send_interval_minutes * 60 
+    : config.send_interval_seconds;
+
+  const handleSpeedAdjust = async (newInterval: number, randomize: boolean) => {
+    setIsAdjustingSpeed(true);
+    try {
+      await updateCampaignSpeed(campaignId, newInterval, randomize);
+      refresh();
+    } finally {
+      setIsAdjustingSpeed(false);
+    }
+  };
+
+  const withinHours = checkAllowedHours();
+  const nextAllowedTime = !withinHours ? getNextAllowedTime(config) : undefined;
 
   const statusConfig = useMemo(() => ({
     sending: { label: 'Enviando', color: 'bg-blue-500', icon: Activity },
@@ -106,57 +180,105 @@ export function CampaignMonitor({ campaignId }: CampaignMonitorProps) {
         </CardHeader>
       </Card>
 
+      {/* Alerts */}
+      {campaign.status === 'sending' && (
+        <CampaignAlerts
+          errorRate={errorRate}
+          isAboveRecommendedSpeed={currentInterval < 20}
+          currentInterval={currentInterval}
+          isWithinAllowedHours={withinHours}
+          nextAllowedTime={nextAllowedTime}
+          isHourlyLimitReached={rateLimitStatus?.isHourlyLimitReached || false}
+          isDailyLimitReached={rateLimitStatus?.isDailyLimitReached || false}
+          hourlyRemaining={rateLimitStatus?.hourlyRemaining}
+          dailyRemaining={rateLimitStatus?.dailyRemaining}
+          onPause={pause}
+          onAdjustSpeed={() => setShowSpeedModal(true)}
+        />
+      )}
+
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
         <Card>
-          <CardContent className="pt-4">
+          <CardContent className="pt-4 pb-3">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Enviados</p>
-                <p className="text-2xl font-bold text-green-600">
+                <p className="text-xs text-muted-foreground">Enviados</p>
+                <p className="text-xl font-bold text-green-600">
                   {stats.totalSent}
-                  <span className="text-sm font-normal text-muted-foreground">
+                  <span className="text-xs font-normal text-muted-foreground">
                     /{campaign.contacts_total}
                   </span>
                 </p>
               </div>
-              <CheckCircle className="h-8 w-8 text-green-500/20" />
+              <CheckCircle className="h-6 w-6 text-green-500/20" />
             </div>
           </CardContent>
         </Card>
 
         <Card>
-          <CardContent className="pt-4">
+          <CardContent className="pt-4 pb-3">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Na Fila</p>
-                <p className="text-2xl font-bold text-blue-600">{stats.totalPending}</p>
+                <p className="text-xs text-muted-foreground">Na Fila</p>
+                <p className="text-xl font-bold text-blue-600">{stats.totalPending}</p>
               </div>
-              <Clock className="h-8 w-8 text-blue-500/20" />
+              <Clock className="h-6 w-6 text-blue-500/20" />
             </div>
           </CardContent>
         </Card>
 
         <Card>
-          <CardContent className="pt-4">
+          <CardContent className="pt-4 pb-3">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Erros</p>
-                <p className="text-2xl font-bold text-destructive">{stats.totalErrors}</p>
+                <p className="text-xs text-muted-foreground">Taxa Atual</p>
+                <p className="text-xl font-bold text-purple-600">{msgsPerHour}/h</p>
               </div>
-              <AlertCircle className="h-8 w-8 text-destructive/20" />
+              <TrendingUp className="h-6 w-6 text-purple-500/20" />
             </div>
           </CardContent>
         </Card>
 
         <Card>
-          <CardContent className="pt-4">
+          <CardContent className="pt-4 pb-3">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Taxa de Sucesso</p>
-                <p className="text-2xl font-bold text-primary">{stats.successRate}%</p>
+                <p className="text-xs text-muted-foreground">Limite Hoje</p>
+                <p className="text-xl font-bold text-amber-600">
+                  {rateLimitStatus?.dailyRemaining ?? config.max_messages_per_day}
+                </p>
               </div>
-              <TrendingUp className="h-8 w-8 text-primary/20" />
+              <Target className="h-6 w-6 text-amber-500/20" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="pt-4 pb-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs text-muted-foreground">Erros</p>
+                <p className="text-xl font-bold text-destructive">{stats.totalErrors}</p>
+              </div>
+              <AlertCircle className="h-6 w-6 text-destructive/20" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="pt-4 pb-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs text-muted-foreground">Próximo</p>
+                <p className="text-xl font-bold text-primary font-mono">
+                  {secondsUntilNext !== null && campaign.status === 'sending'
+                    ? `${Math.floor(secondsUntilNext / 60)}:${String(secondsUntilNext % 60).padStart(2, '0')}`
+                    : '--:--'
+                  }
+                </p>
+              </div>
+              <Timer className="h-6 w-6 text-primary/20" />
             </div>
           </CardContent>
         </Card>
@@ -293,17 +415,37 @@ export function CampaignMonitor({ campaignId }: CampaignMonitorProps) {
               Retomar Campanha
             </Button>
           ) : (
-            <Button variant="outline" onClick={pause} disabled={controlLoading} className="gap-2">
-              {controlLoading ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Pause className="h-4 w-4" />
-              )}
-              Pausar Campanha
-            </Button>
+            <>
+              <Button variant="outline" onClick={pause} disabled={controlLoading} className="gap-2">
+                {controlLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Pause className="h-4 w-4" />
+                )}
+                Pausar Campanha
+              </Button>
+              <Button 
+                variant="outline" 
+                onClick={() => setShowSpeedModal(true)} 
+                className="gap-2"
+              >
+                <Zap className="h-4 w-4" />
+                Ajustar Velocidade
+              </Button>
+            </>
           )}
         </div>
       )}
+
+      {/* Speed Adjust Modal */}
+      <SpeedAdjustModal
+        open={showSpeedModal}
+        onOpenChange={setShowSpeedModal}
+        currentInterval={currentInterval}
+        randomize={config.randomize_interval}
+        onApply={handleSpeedAdjust}
+        isLoading={isAdjustingSpeed}
+      />
     </div>
   );
 }
