@@ -11,11 +11,6 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible';
-import {
   AlertTriangle,
   UserCheck,
   Users,
@@ -123,82 +118,90 @@ export function DuplicateReportModal({
 
           {/* Duplicates in File Details */}
           {report.duplicatesInFile.length > 0 && (
-            <Collapsible open={expandedInFile} onOpenChange={setExpandedInFile}>
-              <CollapsibleTrigger asChild>
-                <Button variant="ghost" className="w-full justify-between">
-                  <span className="flex items-center gap-2">
-                    <Copy className="h-4 w-4 text-amber-500" />
-                    Duplicados no Arquivo ({report.duplicatesInFile.length})
-                  </span>
-                  {expandedInFile ? (
-                    <ChevronUp className="h-4 w-4" />
-                  ) : (
-                    <ChevronDown className="h-4 w-4" />
-                  )}
-                </Button>
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <ScrollArea className="h-32 rounded-md border p-3">
-                  <div className="space-y-1">
-                    {report.duplicatesInFile.map((phone, idx) => (
-                      <div
-                        key={idx}
-                        className="flex items-center gap-2 text-sm text-muted-foreground"
-                      >
-                        <XCircle className="h-3 w-3 text-amber-500" />
-                        {phone}
-                      </div>
-                    ))}
-                  </div>
-                </ScrollArea>
-                <p className="text-xs text-muted-foreground mt-2">
-                  Estes números aparecem mais de uma vez no arquivo.
-                </p>
-              </CollapsibleContent>
-            </Collapsible>
+            <div>
+              <Button 
+                variant="ghost" 
+                className="w-full justify-between"
+                onClick={() => setExpandedInFile(!expandedInFile)}
+              >
+                <span className="flex items-center gap-2">
+                  <Copy className="h-4 w-4 text-amber-500" />
+                  Duplicados no Arquivo ({report.duplicatesInFile.length})
+                </span>
+                {expandedInFile ? (
+                  <ChevronUp className="h-4 w-4" />
+                ) : (
+                  <ChevronDown className="h-4 w-4" />
+                )}
+              </Button>
+              {expandedInFile && (
+                <div>
+                  <ScrollArea className="h-32 rounded-md border p-3">
+                    <div className="space-y-1">
+                      {report.duplicatesInFile.map((phone, idx) => (
+                        <div
+                          key={idx}
+                          className="flex items-center gap-2 text-sm text-muted-foreground"
+                        >
+                          <XCircle className="h-3 w-3 text-amber-500" />
+                          {phone}
+                        </div>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Estes números aparecem mais de uma vez no arquivo.
+                  </p>
+                </div>
+              )}
+            </div>
           )}
 
           {/* Already Sent Details */}
           {report.alreadySentContacts.length > 0 && (
-            <Collapsible open={expandedSent} onOpenChange={setExpandedSent}>
-              <CollapsibleTrigger asChild>
-                <Button variant="ghost" className="w-full justify-between">
-                  <span className="flex items-center gap-2">
-                    <History className="h-4 w-4 text-red-500" />
-                    Já Enviados Anteriormente ({report.alreadySentContacts.length})
-                  </span>
-                  {expandedSent ? (
-                    <ChevronUp className="h-4 w-4" />
-                  ) : (
-                    <ChevronDown className="h-4 w-4" />
-                  )}
-                </Button>
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <ScrollArea className="h-40 rounded-md border p-3">
-                  <div className="space-y-3">
-                    {report.alreadySentContacts.map((contact, idx) => (
-                      <div key={idx} className="border-b pb-2 last:border-0">
-                        <div className="flex items-center gap-2 font-medium text-sm">
-                          <XCircle className="h-3 w-3 text-red-500" />
-                          {contact.phone}
+            <div>
+              <Button 
+                variant="ghost" 
+                className="w-full justify-between"
+                onClick={() => setExpandedSent(!expandedSent)}
+              >
+                <span className="flex items-center gap-2">
+                  <History className="h-4 w-4 text-red-500" />
+                  Já Enviados Anteriormente ({report.alreadySentContacts.length})
+                </span>
+                {expandedSent ? (
+                  <ChevronUp className="h-4 w-4" />
+                ) : (
+                  <ChevronDown className="h-4 w-4" />
+                )}
+              </Button>
+              {expandedSent && (
+                <div>
+                  <ScrollArea className="h-40 rounded-md border p-3">
+                    <div className="space-y-3">
+                      {report.alreadySentContacts.map((contact, idx) => (
+                        <div key={idx} className="border-b pb-2 last:border-0">
+                          <div className="flex items-center gap-2 font-medium text-sm">
+                            <XCircle className="h-3 w-3 text-red-500" />
+                            {contact.phone}
+                          </div>
+                          <div className="ml-5 mt-1 space-y-0.5">
+                            {contact.campaigns.map((campaign, cIdx) => (
+                              <p key={cIdx} className="text-xs text-muted-foreground">
+                                • {campaign.name} - {new Date(campaign.sentAt).toLocaleDateString('pt-BR')}
+                              </p>
+                            ))}
+                          </div>
                         </div>
-                        <div className="ml-5 mt-1 space-y-0.5">
-                          {contact.campaigns.map((campaign, cIdx) => (
-                            <p key={cIdx} className="text-xs text-muted-foreground">
-                              • {campaign.name} - {new Date(campaign.sentAt).toLocaleDateString('pt-BR')}
-                            </p>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </ScrollArea>
-                <p className="text-xs text-muted-foreground mt-2">
-                  Estes números já receberam mensagens em campanhas anteriores.
-                </p>
-              </CollapsibleContent>
-            </Collapsible>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Estes números já receberam mensagens em campanhas anteriores.
+                  </p>
+                </div>
+              )}
+            </div>
           )}
         </div>
 
