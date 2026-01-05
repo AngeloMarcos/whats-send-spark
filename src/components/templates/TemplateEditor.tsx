@@ -10,8 +10,18 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { VariableButton } from './VariableButton';
-import { standardVariables, templateCategories, extractVariables, processMessage } from '@/lib/templateVariables';
-import { Loader2, Save, Star, Plus, AlertCircle, CheckCircle } from 'lucide-react';
+import { 
+  standardVariables, 
+  templateCategories, 
+  extractVariables, 
+  processMessage,
+  getCharacterStatus,
+  WHATSAPP_CHAR_LIMIT,
+  IDEAL_CHAR_LIMIT,
+  realisticSampleData,
+  senderSampleData
+} from '@/lib/templateVariables';
+import { Loader2, Save, Star, Plus, AlertCircle, CheckCircle, AlertTriangle } from 'lucide-react';
 import { format } from 'date-fns';
 
 interface Template {
@@ -71,13 +81,16 @@ export function TemplateEditor({ open, onOpenChange, template, onSave, isSaving 
   // Extract variables from content
   const detectedVariables = extractVariables(formData.content);
   
-  // Process message for preview
-  const previewMessage = processMessage(formData.content, {
-    name: 'João Silva',
-    phone: '(11) 99999-9999',
-    empresa: 'ACME Corp',
-    email: 'joao@email.com',
-  });
+  // Character counter status
+  const characterStatus = getCharacterStatus(formData.content.length);
+  const progressPercent = Math.min((formData.content.length / WHATSAPP_CHAR_LIMIT) * 100, 100);
+  
+  // Process message for preview with realistic data
+  const previewMessage = processMessage(
+    formData.content, 
+    realisticSampleData,
+    senderSampleData
+  );
 
   // Insert variable at cursor position
   const insertVariable = (variable: string) => {
@@ -171,9 +184,8 @@ export function TemplateEditor({ open, onOpenChange, template, onSave, isSaving 
                   {templateCategories.map((cat) => (
                     <SelectItem key={cat.value} value={cat.value}>
                       <div className="flex items-center gap-2">
-                        <Badge variant="secondary" className={`text-xs ${cat.color}`}>
-                          {cat.label}
-                        </Badge>
+                        <span className="text-base">{cat.icon}</span>
+                        <span>{cat.label}</span>
                       </div>
                     </SelectItem>
                   ))}
@@ -259,31 +271,61 @@ export function TemplateEditor({ open, onOpenChange, template, onSave, isSaving 
                   id="content"
                   value={formData.content}
                   onChange={(e) => setFormData({ ...formData, content: e.target.value })}
-                  placeholder="Olá {{nome}}, tudo bem?"
+                  placeholder="Olá {{primeiro_nome}}, tudo bem?"
                   rows={10}
                   className="font-mono text-sm resize-none"
                   required
                 />
               </div>
               
-              {/* Character count and validation */}
-              <div className="flex items-center justify-between text-xs">
+              {/* Smart Character Counter */}
+              <div className="space-y-2">
+                {/* Progress Bar */}
                 <div className="flex items-center gap-2">
-                  <span className={formData.content.length > 1000 ? 'text-amber-500' : 'text-muted-foreground'}>
-                    {formData.content.length} caracteres
+                  <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                    <div 
+                      className={`h-full transition-all duration-300 ${characterStatus.bgColor}`}
+                      style={{ width: `${progressPercent}%` }}
+                    />
+                  </div>
+                  <span className={`text-xs font-medium ${characterStatus.color}`}>
+                    {formData.content.length}/{WHATSAPP_CHAR_LIMIT}
                   </span>
-                  {formData.content.length > 1000 && (
-                    <span className="flex items-center gap-1 text-amber-500">
-                      <AlertCircle className="h-3 w-3" />
-                      Mensagem longa
+                </div>
+                
+                {/* Status Message */}
+                <div className="flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2">
+                    {characterStatus.status === 'error' ? (
+                      <span className="flex items-center gap-1 text-red-500 font-medium">
+                        <AlertTriangle className="h-3 w-3" />
+                        {characterStatus.message}
+                      </span>
+                    ) : characterStatus.status === 'warning' ? (
+                      <span className="flex items-center gap-1 text-amber-500">
+                        <AlertCircle className="h-3 w-3" />
+                        {characterStatus.message}
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1 text-green-500">
+                        <CheckCircle className="h-3 w-3" />
+                        {characterStatus.message}
+                      </span>
+                    )}
+                  </div>
+                  {detectedVariables.length > 0 && (
+                    <span className="flex items-center gap-1 text-primary">
+                      <CheckCircle className="h-3 w-3" />
+                      {detectedVariables.length} variáve{detectedVariables.length > 1 ? 'is' : 'l'}
                     </span>
                   )}
                 </div>
-                {detectedVariables.length > 0 && (
-                  <span className="flex items-center gap-1 text-green-600">
-                    <CheckCircle className="h-3 w-3" />
-                    {detectedVariables.length} variáve{detectedVariables.length > 1 ? 'is' : 'l'}
-                  </span>
+                
+                {/* Ideal limit indicator */}
+                {formData.content.length > 0 && formData.content.length <= IDEAL_CHAR_LIMIT && (
+                  <p className="text-xs text-muted-foreground">
+                    💡 Até {IDEAL_CHAR_LIMIT} caracteres é ideal para mensagens frias
+                  </p>
                 )}
               </div>
 
@@ -318,8 +360,21 @@ export function TemplateEditor({ open, onOpenChange, template, onSave, isSaving 
                   </div>
                   
                   {/* Sample data indicator */}
-                  <div className="mt-4 text-xs text-center text-muted-foreground">
-                    Preview com dados de exemplo
+                  <div className="mt-4 p-2 rounded-lg bg-white/50 dark:bg-black/20">
+                    <p className="text-xs text-center text-muted-foreground mb-2">
+                      📱 Dados de exemplo:
+                    </p>
+                    <div className="flex flex-wrap gap-1 justify-center text-[10px]">
+                      <Badge variant="outline" className="bg-white/80 dark:bg-black/30">
+                        {realisticSampleData.name}
+                      </Badge>
+                      <Badge variant="outline" className="bg-white/80 dark:bg-black/30">
+                        {realisticSampleData.cidade}
+                      </Badge>
+                      <Badge variant="outline" className="bg-white/80 dark:bg-black/30">
+                        {realisticSampleData.segmento}
+                      </Badge>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -352,7 +407,10 @@ export function TemplateEditor({ open, onOpenChange, template, onSave, isSaving 
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancelar
             </Button>
-            <Button type="submit" disabled={isSaving}>
+            <Button 
+              type="submit" 
+              disabled={isSaving || formData.content.length > WHATSAPP_CHAR_LIMIT}
+            >
               {isSaving ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
