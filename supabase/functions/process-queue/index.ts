@@ -81,18 +81,20 @@ serve(async (req) => {
     // Verify user owns this campaign
     const { data: campaign, error: campaignError } = await supabaseClient
       .from('campaigns')
-      .select('*, settings:settings!inner(n8n_webhook_url)')
+      .select('*')
       .eq('id', campaignId)
       .eq('user_id', user.id)
       .single();
 
     if (campaignError || !campaign) {
-      console.error(`Campaign not found or access denied: ${campaignId}`);
+      console.error(`Campaign not found or access denied: ${campaignId}`, campaignError);
       return new Response(JSON.stringify({ error: 'Campaign not found or access denied' }), {
         status: 403,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
+
+    console.log(`Campaign found: ${campaign.id}, status: ${campaign.status}`);
 
     // Get user settings for webhook URL and sending config
     const { data: settings, error: settingsError } = await supabaseClient
