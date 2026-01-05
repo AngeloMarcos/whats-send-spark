@@ -52,7 +52,10 @@ export function ListUpload({ onDataReady, onClear }: ListUploadProps) {
         const workbook = XLSX.read(data, { type: 'array' });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
-        const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+        const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
+          defval: '', 
+          raw: false  // Força todos os valores serem strings, evitando perda de precisão em números grandes
+        });
 
         if (jsonData.length === 0) {
           setIsProcessing(false);
@@ -146,8 +149,35 @@ export function ListUpload({ onDataReady, onClear }: ListUploadProps) {
   useEffect(() => {
     if (!phoneColumn || rows.length === 0) return;
     
-    const contacts: ParsedContact[] = rows.map((row, index) => {
-      const phone = formatToInternational(String(row[phoneColumn] ?? ''));
+    const contacts: ParsedContact[] = rows.map((row) => {
+      let rawPhone = String(row[phoneColumn] ?? '');
+      
+      // Se o telefone parecer truncado (menos de 10 dígitos após limpeza), tentar extrair de campos extras
+      const cleanedForCheck = rawPhone.replace(/\D/g, '');
+      if (cleanedForCheck.length < 10) {
+        const extraData = row as Record<string, unknown>;
+        
+        // Tentar extrair de links WhatsApp comuns
+        const whatsappLink = String(
+          extraData['link_test_whatsapp'] || 
+          extraData['link_whatsapp_cnpjbiz'] || 
+          ''
+        );
+        const phoneMatch = whatsappLink.match(/phone=(\d+)/);
+        if (phoneMatch && phoneMatch[1].length >= 10) {
+          rawPhone = phoneMatch[1];
+          console.log('Phone extracted from WhatsApp link:', rawPhone);
+        } else if (extraData['telefones']) {
+          const telefonesValue = String(extraData['telefones']).replace(/\D/g, '');
+          if (telefonesValue.length >= 10) {
+            rawPhone = telefonesValue;
+            console.log('Phone extracted from telefones field:', rawPhone);
+          }
+        }
+      }
+      
+      const phone = formatToInternational(rawPhone);
+      console.log('Phone mapping - Original:', row[phoneColumn], '-> Formatted:', phone);
       const name = nameColumn ? String(row[nameColumn] ?? '') : undefined;
       
       const extra_data: Record<string, unknown> = {};
