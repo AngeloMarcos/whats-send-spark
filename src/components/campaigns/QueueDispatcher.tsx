@@ -23,7 +23,9 @@ import {
   Ban,
   RefreshCcw,
   SkipForward,
+  CalendarClock,
 } from 'lucide-react';
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { DispatcherState, QueueItem } from '@/hooks/useQueueDispatcher';
 
 interface QueueDispatcherProps {
@@ -39,6 +41,8 @@ interface QueueDispatcherProps {
   onRetryFailed?: () => void;
   totalContacts: number;
   disabled?: boolean;
+  scheduledAt?: string | null;
+  onStartScheduled?: (intervalMinutes: number, scheduledAt: string) => void;
 }
 
 function formatTime(seconds: number): string {
@@ -60,6 +64,8 @@ export function QueueDispatcher({
   onRetryFailed,
   totalContacts,
   disabled = false,
+  scheduledAt,
+  onStartScheduled,
 }: QueueDispatcherProps) {
   const [intervalMinutes, setIntervalMinutes] = useState(5);
   const [displaySeconds, setDisplaySeconds] = useState(secondsUntilNext);
@@ -118,13 +124,39 @@ export function QueueDispatcher({
             </span>
           </div>
 
+          {/* Scheduled info */}
+          {scheduledAt && (
+            <Alert className="border-blue-500/30 bg-blue-500/10">
+              <CalendarClock className="h-4 w-4 text-blue-500" />
+              <AlertTitle className="text-blue-800 dark:text-blue-400">Disparo Agendado</AlertTitle>
+              <AlertDescription className="text-blue-700 dark:text-blue-300">
+                Início programado para: {new Date(scheduledAt).toLocaleString('pt-BR')}
+              </AlertDescription>
+            </Alert>
+          )}
+
           <Button
-            onClick={() => onStart(intervalMinutes)}
+            onClick={() => {
+              if (scheduledAt && onStartScheduled) {
+                onStartScheduled(intervalMinutes, scheduledAt);
+              } else {
+                onStart(intervalMinutes);
+              }
+            }}
             className="w-full"
             disabled={disabled || totalContacts === 0}
           >
-            <Play className="mr-2 h-4 w-4" />
-            Iniciar Disparo com Intervalo
+            {scheduledAt ? (
+              <>
+                <CalendarClock className="mr-2 h-4 w-4" />
+                Agendar Disparo
+              </>
+            ) : (
+              <>
+                <Play className="mr-2 h-4 w-4" />
+                Iniciar Disparo Agora
+              </>
+            )}
           </Button>
         </CardContent>
       </Card>
