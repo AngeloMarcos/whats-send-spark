@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Campaign } from '@/types/database';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+
 import { SkeletonTableRows } from '@/components/ui/loading-skeletons';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
@@ -320,210 +320,209 @@ export function CampaignHistory({ campaigns, onRefresh, isLoading, onOpenMonitor
                       : 0;
 
                     return (
-                      <Collapsible key={campaign.id} open={isExpanded}>
-                        <>
-                          <TableRow className="hover:bg-muted/50 transition-colors">
-                            <TableCell>
-                              <CollapsibleTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-6 w-6 p-0"
-                                  onClick={() => toggleExpanded(campaign.id)}
-                                >
-                                  {isExpanded ? (
-                                    <ChevronUp className="h-4 w-4" />
-                                  ) : (
-                                    <ChevronDown className="h-4 w-4" />
-                                  )}
-                                </Button>
-                              </CollapsibleTrigger>
-                            </TableCell>
-                            <TableCell className="font-medium">{campaign.name}</TableCell>
-                            <TableCell className="hidden md:table-cell">
-                              {campaign.list?.name || '-'}
-                            </TableCell>
-                            <TableCell>
-                              <Badge variant={status.variant} className="transition-transform hover:scale-105">
-                                {status.label}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-center">
-                              <div className="flex items-center justify-center gap-2">
-                                <span className="text-sm font-medium">{campaign.contacts_sent || 0}</span>
-                                <span className="text-muted-foreground">/</span>
-                                <span className="text-sm">{campaign.contacts_total || 0}</span>
-                                <span className="text-xs text-muted-foreground">({progressPercent}%)</span>
-                              </div>
-                            </TableCell>
-                            <TableCell className="hidden sm:table-cell">
-                              {format(new Date(campaign.created_at), "dd/MM/yyyy HH:mm", { locale: ptBR })}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <div className="flex items-center justify-end gap-1">
-                                {/* Monitor button for sending campaigns */}
-                                {isSending && onOpenMonitor && (
+                      <React.Fragment key={campaign.id}>
+                        <TableRow className="hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => toggleExpanded(campaign.id)}>
+                          <TableCell>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 w-6 p-0"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleExpanded(campaign.id);
+                              }}
+                            >
+                              {isExpanded ? (
+                                <ChevronUp className="h-4 w-4" />
+                              ) : (
+                                <ChevronDown className="h-4 w-4" />
+                              )}
+                            </Button>
+                          </TableCell>
+                          <TableCell className="font-medium">{campaign.name}</TableCell>
+                          <TableCell className="hidden md:table-cell">
+                            {campaign.list?.name || '-'}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={status.variant} className="transition-transform hover:scale-105">
+                              {status.label}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <div className="flex items-center justify-center gap-2">
+                              <span className="text-sm font-medium">{campaign.contacts_sent || 0}</span>
+                              <span className="text-muted-foreground">/</span>
+                              <span className="text-sm">{campaign.contacts_total || 0}</span>
+                              <span className="text-xs text-muted-foreground">({progressPercent}%)</span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="hidden sm:table-cell">
+                            {format(new Date(campaign.created_at), "dd/MM/yyyy HH:mm", { locale: ptBR })}
+                          </TableCell>
+                          <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex items-center justify-end gap-1">
+                              {/* Monitor button for sending campaigns */}
+                              {isSending && onOpenMonitor && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => onOpenMonitor(campaign.id)}
+                                      className="text-primary hover:text-primary hover:bg-primary/10"
+                                    >
+                                      <Activity className="h-4 w-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Ver Monitor</TooltipContent>
+                                </Tooltip>
+                              )}
+                              {isSending && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => handleStopCampaign(campaign.id)}
+                                      disabled={isActionLoading}
+                                      className="text-amber-600 hover:text-amber-700 hover:bg-amber-50"
+                                    >
+                                      {isActionLoading ? (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                      ) : (
+                                        <StopCircle className="h-4 w-4" />
+                                      )}
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Pausar campanha</TooltipContent>
+                                </Tooltip>
+                              )}
+                              {canDelete && (
+                                <AlertDialog>
                                   <Tooltip>
                                     <TooltipTrigger asChild>
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => onOpenMonitor(campaign.id)}
-                                        className="text-primary hover:text-primary hover:bg-primary/10"
-                                      >
-                                        <Activity className="h-4 w-4" />
-                                      </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>Ver Monitor</TooltipContent>
-                                  </Tooltip>
-                                )}
-                                {isSending && (
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => handleStopCampaign(campaign.id)}
-                                        disabled={isActionLoading}
-                                        className="text-amber-600 hover:text-amber-700 hover:bg-amber-50"
-                                      >
-                                        {isActionLoading ? (
-                                          <Loader2 className="h-4 w-4 animate-spin" />
-                                        ) : (
-                                          <StopCircle className="h-4 w-4" />
-                                        )}
-                                      </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>Pausar campanha</TooltipContent>
-                                  </Tooltip>
-                                )}
-                                {canDelete && (
-                                  <AlertDialog>
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <AlertDialogTrigger asChild>
-                                          <Button
-                                            variant="outline"
-                                            size="sm"
-                                            disabled={isActionLoading}
-                                            className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                                          >
-                                            {isActionLoading ? (
-                                              <Loader2 className="h-4 w-4 animate-spin" />
-                                            ) : (
-                                              <Trash2 className="h-4 w-4" />
-                                            )}
-                                          </Button>
-                                        </AlertDialogTrigger>
-                                      </TooltipTrigger>
-                                      <TooltipContent>Excluir campanha</TooltipContent>
-                                    </Tooltip>
-                                    <AlertDialogContent>
-                                      <AlertDialogHeader>
-                                        <AlertDialogTitle>Excluir campanha?</AlertDialogTitle>
-                                        <AlertDialogDescription>
-                                          Esta ação não pode ser desfeita. A campanha "{campaign.name}" será excluída permanentemente.
-                                        </AlertDialogDescription>
-                                      </AlertDialogHeader>
-                                      <AlertDialogFooter>
-                                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                                        <AlertDialogAction
-                                          onClick={() => handleDeleteCampaign(campaign.id)}
-                                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                      <AlertDialogTrigger asChild>
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          disabled={isActionLoading}
+                                          className="text-destructive hover:text-destructive hover:bg-destructive/10"
                                         >
-                                          Excluir
-                                        </AlertDialogAction>
-                                      </AlertDialogFooter>
-                                    </AlertDialogContent>
-                                  </AlertDialog>
-                                )}
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                          
-                          {/* Expanded Content */}
-                          <CollapsibleContent asChild>
-                            <TableRow className="bg-muted/30">
-                              <TableCell colSpan={7} className="p-4">
-                                <div className="space-y-4 animate-fade-in">
-                                  {/* Campaign Details */}
-                                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                    {/* Stats */}
-                                    <div className="space-y-2">
-                                      <h4 className="text-sm font-medium flex items-center gap-2">
-                                        <CheckCircle className="h-4 w-4 text-primary" />
-                                        Estatísticas
-                                      </h4>
-                                      <div className="grid grid-cols-2 gap-2 text-sm">
-                                        <div className="flex items-center gap-2">
-                                          <span className="text-muted-foreground">Enviados:</span>
-                                          <span className="font-medium text-primary">{campaign.contacts_sent || 0}</span>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                          <span className="text-muted-foreground">Falhas:</span>
-                                          <span className="font-medium text-destructive">{campaign.contacts_failed || 0}</span>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                          <span className="text-muted-foreground">Total:</span>
-                                          <span className="font-medium">{campaign.contacts_total || 0}</span>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                          <span className="text-muted-foreground">Intervalo:</span>
-                                          <span className="font-medium">{campaign.send_interval_minutes || 5} min</span>
-                                        </div>
+                                          {isActionLoading ? (
+                                            <Loader2 className="h-4 w-4 animate-spin" />
+                                          ) : (
+                                            <Trash2 className="h-4 w-4" />
+                                          )}
+                                        </Button>
+                                      </AlertDialogTrigger>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Excluir campanha</TooltipContent>
+                                  </Tooltip>
+                                  <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                      <AlertDialogTitle>Excluir campanha?</AlertDialogTitle>
+                                      <AlertDialogDescription>
+                                        Esta ação não pode ser desfeita. A campanha "{campaign.name}" será excluída permanentemente.
+                                      </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                      <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                      <AlertDialogAction
+                                        onClick={() => handleDeleteCampaign(campaign.id)}
+                                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                      >
+                                        Excluir
+                                      </AlertDialogAction>
+                                    </AlertDialogFooter>
+                                  </AlertDialogContent>
+                                </AlertDialog>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                        
+                        {/* Expanded Content */}
+                        {isExpanded && (
+                          <TableRow className="bg-muted/30">
+                            <TableCell colSpan={7} className="p-4">
+                              <div className="space-y-4 animate-fade-in">
+                                {/* Campaign Details */}
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                  {/* Stats */}
+                                  <div className="space-y-2">
+                                    <h4 className="text-sm font-medium flex items-center gap-2">
+                                      <CheckCircle className="h-4 w-4 text-primary" />
+                                      Estatísticas
+                                    </h4>
+                                    <div className="grid grid-cols-2 gap-2 text-sm">
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-muted-foreground">Enviados:</span>
+                                        <span className="font-medium text-primary">{campaign.contacts_sent || 0}</span>
                                       </div>
-                                    </div>
-
-                                    {/* Dates */}
-                                    <div className="space-y-2">
-                                      <h4 className="text-sm font-medium flex items-center gap-2">
-                                        <Clock className="h-4 w-4 text-primary" />
-                                        Datas
-                                      </h4>
-                                      <div className="space-y-1 text-sm">
-                                        <div className="flex items-center gap-2">
-                                          <span className="text-muted-foreground">Criada:</span>
-                                          <span>{format(new Date(campaign.created_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}</span>
-                                        </div>
-                                        {campaign.completed_at && (
-                                          <div className="flex items-center gap-2">
-                                            <span className="text-muted-foreground">Concluída:</span>
-                                            <span>{format(new Date(campaign.completed_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}</span>
-                                          </div>
-                                        )}
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-muted-foreground">Falhas:</span>
+                                        <span className="font-medium text-destructive">{campaign.contacts_failed || 0}</span>
                                       </div>
-                                    </div>
-
-                                    {/* Message Preview */}
-                                    <div className="space-y-2">
-                                      <h4 className="text-sm font-medium flex items-center gap-2">
-                                        <MessageSquare className="h-4 w-4 text-primary" />
-                                        Mensagem
-                                      </h4>
-                                      <div className="bg-background rounded-lg p-3 text-sm max-h-24 overflow-y-auto">
-                                        <p className="whitespace-pre-wrap text-muted-foreground line-clamp-3">
-                                          {campaign.message || 'Sem mensagem'}
-                                        </p>
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-muted-foreground">Total:</span>
+                                        <span className="font-medium">{campaign.contacts_total || 0}</span>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-muted-foreground">Intervalo:</span>
+                                        <span className="font-medium">{campaign.send_interval_minutes || 5} min</span>
                                       </div>
                                     </div>
                                   </div>
 
-                                  {/* Error Message */}
-                                  {campaign.error_message && (
-                                    <div className="flex items-start gap-2 p-3 bg-destructive/10 rounded-lg">
-                                      <XCircle className="h-4 w-4 text-destructive mt-0.5" />
-                                      <div>
-                                        <p className="text-sm font-medium text-destructive">Erro</p>
-                                        <p className="text-sm text-muted-foreground">{campaign.error_message}</p>
+                                  {/* Dates */}
+                                  <div className="space-y-2">
+                                    <h4 className="text-sm font-medium flex items-center gap-2">
+                                      <Clock className="h-4 w-4 text-primary" />
+                                      Datas
+                                    </h4>
+                                    <div className="space-y-1 text-sm">
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-muted-foreground">Criada:</span>
+                                        <span>{format(new Date(campaign.created_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}</span>
                                       </div>
+                                      {campaign.completed_at && (
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-muted-foreground">Concluída:</span>
+                                          <span>{format(new Date(campaign.completed_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}</span>
+                                        </div>
+                                      )}
                                     </div>
-                                  )}
+                                  </div>
+
+                                  {/* Message Preview */}
+                                  <div className="space-y-2">
+                                    <h4 className="text-sm font-medium flex items-center gap-2">
+                                      <MessageSquare className="h-4 w-4 text-primary" />
+                                      Mensagem
+                                    </h4>
+                                    <div className="bg-background rounded-lg p-3 text-sm max-h-24 overflow-y-auto">
+                                      <p className="whitespace-pre-wrap text-muted-foreground line-clamp-3">
+                                        {campaign.message || 'Sem mensagem'}
+                                      </p>
+                                    </div>
+                                  </div>
                                 </div>
-                              </TableCell>
-                            </TableRow>
-                          </CollapsibleContent>
-                        </>
-                      </Collapsible>
+
+                                {/* Error Message */}
+                                {campaign.error_message && (
+                                  <div className="flex items-start gap-2 p-3 bg-destructive/10 rounded-lg">
+                                    <XCircle className="h-4 w-4 text-destructive mt-0.5" />
+                                    <div>
+                                      <p className="text-sm font-medium text-destructive">Erro</p>
+                                      <p className="text-sm text-muted-foreground">{campaign.error_message}</p>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </React.Fragment>
                     );
                   })}
                 </TableBody>
