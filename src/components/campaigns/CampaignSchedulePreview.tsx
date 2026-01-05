@@ -14,13 +14,18 @@ import { format, formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { SendingConfig } from '@/types/sendingConfig';
 import { generateSchedulePreview } from '@/services/messageQueue';
+import { SkeletonSchedulePreview } from '@/components/ui/loading-skeletons';
 
 interface CampaignSchedulePreviewProps {
   totalContacts: number;
   config: SendingConfig;
+  isLoading?: boolean;
 }
 
-export function CampaignSchedulePreview({ totalContacts, config }: CampaignSchedulePreviewProps) {
+export function CampaignSchedulePreview({ totalContacts, config, isLoading }: CampaignSchedulePreviewProps) {
+  if (isLoading) {
+    return <SkeletonSchedulePreview />;
+  }
   const preview = useMemo(() => {
     return generateSchedulePreview(totalContacts, config);
   }, [totalContacts, config]);
