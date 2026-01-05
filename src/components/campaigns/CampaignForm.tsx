@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { List, Template, Campaign } from '@/types/database';
@@ -12,6 +12,8 @@ import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
 import { Send, Loader2, Sparkles, Wand2, FlaskConical } from 'lucide-react';
 import { TestModeBanner } from './TestModeBanner';
+import { CampaignSchedulePreview } from './CampaignSchedulePreview';
+import { useSendingConfig } from '@/hooks/useSendingConfig';
 
 interface CampaignFormProps {
   lists: List[];
@@ -23,6 +25,7 @@ interface CampaignFormProps {
 export function CampaignForm({ lists, templates, onMessageChange, onCampaignCreated }: CampaignFormProps) {
   const { user } = useAuth();
   const { toast } = useToast();
+  const { config: sendingConfig, isLoading: isLoadingConfig } = useSendingConfig();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isTestMode, setIsTestMode] = useState(false);
@@ -58,6 +61,22 @@ export function CampaignForm({ lists, templates, onMessageChange, onCampaignCrea
     
     fetchDefaultTestContact();
   }, [user]);
+
+  // Calculate total contacts for schedule preview
+  const totalContacts = useMemo(() => {
+    const selectedList = lists.find(l => l.id === formData.list_id);
+    const listContactCount = selectedList?.contact_count || 0;
+    
+    if (isTestMode) {
+      return Math.min(10, listContactCount);
+    }
+    
+    if (formData.send_limit) {
+      return Math.min(parseInt(formData.send_limit), listContactCount);
+    }
+    
+    return listContactCount;
+  }, [lists, formData.list_id, formData.send_limit, isTestMode]);
 
   const handleTemplateChange = (templateId: string) => {
     const template = templates.find(t => t.id === templateId);
@@ -435,6 +454,14 @@ export function CampaignForm({ lists, templates, onMessageChange, onCampaignCrea
               Deixe vazio para enviar para todos os contatos
             </p>
           </div>
+
+          {/* Schedule Preview */}
+          {formData.list_id && totalContacts > 0 && !isLoadingConfig && (
+            <CampaignSchedulePreview 
+              totalContacts={totalContacts}
+              config={sendingConfig}
+            />
+          )}
 
           {/* Submit */}
           <Button type="submit" className="w-full" size="lg" disabled={isSubmitting}>
