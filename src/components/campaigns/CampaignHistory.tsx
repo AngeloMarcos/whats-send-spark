@@ -320,7 +320,7 @@ export function CampaignHistory({ campaigns, onRefresh, isLoading, onOpenMonitor
                       : 0;
 
                     return (
-                      <Collapsible key={campaign.id} asChild open={isExpanded}>
+                      <Collapsible key={campaign.id} open={isExpanded}>
                         <>
                           <TableRow className="hover:bg-muted/50 transition-colors">
                             <TableCell>
