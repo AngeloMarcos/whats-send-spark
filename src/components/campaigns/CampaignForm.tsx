@@ -10,7 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
-import { Send, Loader2, Sparkles, Wand2, FlaskConical } from 'lucide-react';
+import { Send, Loader2, FlaskConical } from 'lucide-react';
 import { TestModeBanner } from './TestModeBanner';
 import { CampaignSchedulePreview } from './CampaignSchedulePreview';
 import { useSendingConfig } from '@/hooks/useSendingConfig';
@@ -27,7 +27,6 @@ export function CampaignForm({ lists, templates, onMessageChange, onCampaignCrea
   const { toast } = useToast();
   const { config: sendingConfig, isLoading: isLoadingConfig } = useSendingConfig();
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isGenerating, setIsGenerating] = useState(false);
   const [isTestMode, setIsTestMode] = useState(false);
   const [defaultTestContact, setDefaultTestContact] = useState<{ phone: string; name: string } | null>(null);
   const [formData, setFormData] = useState({
@@ -38,8 +37,6 @@ export function CampaignForm({ lists, templates, onMessageChange, onCampaignCrea
     send_now: true,
     scheduled_at: '',
     send_limit: '',
-    use_ai: false,
-    ai_prompt: '',
   });
 
   // Fetch default test contact
@@ -91,47 +88,6 @@ export function CampaignForm({ lists, templates, onMessageChange, onCampaignCrea
   const handleMessageChange = (message: string) => {
     setFormData({ ...formData, message });
     onMessageChange(message);
-  };
-
-  const generateAIMessage = async () => {
-    if (!formData.ai_prompt.trim()) {
-      toast({
-        title: 'Descreva a mensagem',
-        description: 'Digite o que você quer que a IA escreva',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    setIsGenerating(true);
-    try {
-      const { data, error } = await supabase.functions.invoke('generate-message', {
-        body: { prompt: formData.ai_prompt },
-      });
-
-      if (error) throw error;
-
-      if (data?.message) {
-        setFormData({ ...formData, message: data.message, use_ai: false });
-        onMessageChange(data.message);
-        toast({ title: 'Mensagem gerada com sucesso!' });
-      } else {
-        toast({
-          title: 'Erro ao gerar mensagem',
-          description: 'Resposta inválida do servidor. Tente novamente.',
-          variant: 'destructive',
-        });
-      }
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
-      toast({
-        title: 'Erro ao gerar mensagem',
-        description: errorMessage,
-        variant: 'destructive',
-      });
-    } finally {
-      setIsGenerating(false);
-    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -249,8 +205,6 @@ export function CampaignForm({ lists, templates, onMessageChange, onCampaignCrea
         send_now: true,
         scheduled_at: '',
         send_limit: '',
-        use_ai: false,
-        ai_prompt: '',
       });
       setIsTestMode(false);
       onMessageChange('');
@@ -273,7 +227,7 @@ export function CampaignForm({ lists, templates, onMessageChange, onCampaignCrea
           Nova Campanha
         </CardTitle>
         <CardDescription>
-          Configure e envie uma nova campanha de mensagens
+          Configure e envie uma nova campanha de mensagens com templates
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -351,53 +305,6 @@ export function CampaignForm({ lists, templates, onMessageChange, onCampaignCrea
             />
           )}
 
-          {/* AI Generation Toggle */}
-          <div className="flex items-center justify-between rounded-lg border p-4">
-            <div className="flex items-center gap-3">
-              <Sparkles className="h-5 w-5 text-primary" />
-              <div>
-                <Label>Gerar mensagem com IA</Label>
-                <p className="text-xs text-muted-foreground">Use IA para criar a mensagem automaticamente</p>
-              </div>
-            </div>
-            <Switch
-              checked={formData.use_ai}
-              onCheckedChange={(checked) => setFormData({ ...formData, use_ai: checked })}
-            />
-          </div>
-
-          {/* AI Prompt */}
-          {formData.use_ai && (
-            <div className="space-y-2">
-              <Label htmlFor="ai_prompt">Descreva a mensagem que você quer</Label>
-              <Textarea
-                id="ai_prompt"
-                value={formData.ai_prompt}
-                onChange={(e) => setFormData({ ...formData, ai_prompt: e.target.value })}
-                placeholder="Ex: Uma mensagem de promoção de Black Friday para clientes VIP, com tom amigável e chamada para ação"
-                rows={3}
-              />
-              <Button
-                type="button"
-                variant="outline"
-                onClick={generateAIMessage}
-                disabled={isGenerating}
-              >
-                {isGenerating ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Gerando...
-                  </>
-                ) : (
-                  <>
-                    <Wand2 className="mr-2 h-4 w-4" />
-                    Gerar Mensagem
-                  </>
-                )}
-              </Button>
-            </div>
-          )}
-
           {/* Message */}
           <div className="space-y-2">
             <Label htmlFor="message">Mensagem *</Label>
@@ -405,12 +312,12 @@ export function CampaignForm({ lists, templates, onMessageChange, onCampaignCrea
               id="message"
               value={formData.message}
               onChange={(e) => handleMessageChange(e.target.value)}
-              placeholder="Digite a mensagem. Use {{nome}} para personalizar."
+              placeholder="Digite sua mensagem. Use {{nome}} para personalização. Exemplo: Olá {{nome}}, temos uma oferta especial para você!"
               rows={5}
               required
             />
             <p className="text-xs text-muted-foreground">
-              Placeholders disponíveis: {"{{nome}}"}, {"{{telefone}}"}, {"{{email}}"}
+              Use variáveis para personalização: {"{{nome}}"}, {"{{telefone}}"}, {"{{empresa}}"}, {"{{email}}"}
             </p>
           </div>
 
