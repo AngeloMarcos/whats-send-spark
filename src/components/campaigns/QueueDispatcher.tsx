@@ -221,6 +221,26 @@ export function QueueDispatcher({
           </div>
         </div>
 
+        {/* Progress Banner - Enviando X de Y */}
+        {state.isRunning && !state.isPaused && remainingCount > 0 && (
+          <div className="flex items-center justify-between p-4 rounded-lg bg-gradient-to-r from-primary/10 to-emerald-500/10 border border-primary/20">
+            <div className="flex items-center gap-3">
+              <Loader2 className="h-6 w-6 text-primary animate-spin" />
+              <div>
+                <div className="font-semibold text-sm">
+                  Enviando {state.sentCount + 1} de {state.totalContacts} mensagens...
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {remainingCount} restantes • ~{Math.ceil(remainingCount * state.intervalMinutes)} min estimados
+                </div>
+              </div>
+            </div>
+            <Badge variant="outline" className="font-mono text-lg px-3 py-1">
+              {progress}%
+            </Badge>
+          </div>
+        )}
+
         {/* Skipped warning */}
         {(state.skippedCount || 0) > 0 && (
           <div className="flex items-center gap-2 p-2 rounded-lg bg-blue-500/10 border border-blue-500/20 text-sm">

@@ -501,6 +501,62 @@ serve(async (req) => {
       // Determine phone to send to (test mode redirects to test contact)
       const phoneToSend = testContactPhone || nextContact.contact_phone;
 
+      // Validate phone before sending
+      if (!phoneToSend || phoneToSend.replace(/\D/g, '').length < 10) {
+        console.error(`❌ Telefone inválido: ${phoneToSend} (${phoneToSend?.replace(/\D/g, '').length || 0} dígitos)`);
+        
+        // Mark as error
+        await supabaseClient
+          .from('campaign_queue')
+          .update({ 
+            status: 'error', 
+            error_message: `Telefone inválido: ${phoneToSend}` 
+          })
+          .eq('id', nextContact.id);
+        
+        // Update campaign failed counter
+        await supabaseClient
+          .from('campaigns')
+          .update({ 
+            contacts_failed: (campaign.contacts_failed || 0) + 1 
+          })
+          .eq('id', campaignId);
+
+        // Get remaining count
+        const { count } = await supabaseClient
+          .from('campaign_queue')
+          .select('*', { count: 'exact', head: true })
+          .eq('campaign_id', campaignId)
+          .eq('status', 'pending');
+
+        return new Response(JSON.stringify({ 
+          done: (count || 0) === 0,
+          error: {
+            id: nextContact.id,
+            name: nextContact.contact_name,
+            phone: nextContact.contact_phone,
+            message: 'Telefone inválido',
+          },
+          remainingCount: count || 0,
+          failedCount: (campaign.contacts_failed || 0) + 1,
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Extract all contact data fields explicitly
+      const contactData = nextContact.contact_data || {};
+      
+      // Log payload details for debugging
+      console.log('📤 Payload para N8N:', {
+        phone: phoneToSend,
+        phoneLength: phoneToSend?.length,
+        phoneDigits: phoneToSend?.replace(/\D/g, '').length,
+        name: nextContact.contact_name,
+        hasContactData: !!nextContact.contact_data,
+        contactDataKeys: Object.keys(contactData)
+      });
+
       // Send to webhook
       try {
         const controller = new AbortController();
@@ -512,10 +568,13 @@ serve(async (req) => {
           body: JSON.stringify({
             campaignId,
             contact: {
-              name: nextContact.contact_name,
-              phone: phoneToSend, // Use test phone if in test mode
-              originalPhone: nextContact.contact_phone, // Keep original for reference
-              ...nextContact.contact_data,
+              name: nextContact.contact_name || '',
+              phone: phoneToSend,
+              originalPhone: nextContact.contact_phone,
+              email: contactData.email || '',
+              empresa: contactData.empresa || contactData.company || '',
+              // Spread all extra fields from contact_data
+              ...contactData,
             },
             message: campaign.message,
             isTestMode: campaign.is_test_mode,
