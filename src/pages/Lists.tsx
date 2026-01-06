@@ -17,8 +17,24 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { SkeletonCard } from '@/components/ui/loading-skeletons';
+import { ErrorBoundary } from '@/components/ui/error-boundary';
 import { Plus, Loader2, Trash2, Edit, Upload, Users, Eye, CheckCircle2, Search, X, CheckCircle, AlertCircle, ArrowUpDown } from 'lucide-react';
 import { ListUpload, ParsedContact } from '@/components/lists/ListUpload';
+
+// Safe text display - truncates and handles problematic data
+const safeDisplayText = (text: string | null | undefined, maxLength: number = 50): string => {
+  if (!text) return '-';
+  const str = String(text);
+  // Remove URLs from display
+  if (str.startsWith('http') || str.includes('cnpj.biz')) {
+    const nameMatch = str.match(/[?&]name=([^&]+)/);
+    if (nameMatch) {
+      return decodeURIComponent(nameMatch[1].replace(/%20/g, ' ')).slice(0, maxLength);
+    }
+    return '-';
+  }
+  return str.length > maxLength ? str.slice(0, maxLength) + '...' : str;
+};
 
 export default function Lists() {
   const { user } = useAuth();
@@ -107,14 +123,31 @@ export default function Lists() {
 
   const fetchContacts = async (listId: string) => {
     setIsLoadingContacts(true);
-    const { data, error } = await supabase
-      .from('contacts')
-      .select('*')
-      .eq('list_id', listId)
-      .order('created_at', { ascending: true });
+    try {
+      const { data, error } = await supabase
+        .from('contacts')
+        .select('*')
+        .eq('list_id', listId)
+        .order('created_at', { ascending: true })
+        .limit(1000); // Limit to prevent performance issues
 
-    if (data) setContacts(data as Contact[]);
-    setIsLoadingContacts(false);
+      if (error) {
+        console.error('Error fetching contacts:', error);
+        toast({ 
+          title: 'Erro ao carregar contatos', 
+          description: error.message,
+          variant: 'destructive' 
+        });
+        setContacts([]);
+      } else {
+        setContacts(data as Contact[]);
+      }
+    } catch (err) {
+      console.error('Unexpected error:', err);
+      setContacts([]);
+    } finally {
+      setIsLoadingContacts(false);
+    }
   };
 
   const handleViewContacts = async (list: List) => {
@@ -268,8 +301,9 @@ export default function Lists() {
   };
 
   return (
+    <ErrorBoundary>
     <AppLayout>
-      <AppHeader 
+      <AppHeader
         title="Listas de Contatos" 
         description="Gerencie suas listas de contatos importadas"
       />
@@ -554,11 +588,11 @@ export default function Lists() {
                   <TableBody>
                     {filteredContacts.map((contact) => (
                       <TableRow key={contact.id}>
-                        <TableCell className="font-medium">
-                          {contact.name || '-'}
+                        <TableCell className="font-medium max-w-[200px] truncate" title={contact.name || undefined}>
+                          {safeDisplayText(contact.name)}
                         </TableCell>
                         <TableCell className="font-mono text-sm">
-                          {contact.phone}
+                          {contact.phone || '-'}
                         </TableCell>
                         <TableCell className="text-center">
                           {contact.is_valid !== false ? (
@@ -587,5 +621,6 @@ export default function Lists() {
         </SheetContent>
       </Sheet>
     </AppLayout>
+    </ErrorBoundary>
   );
 }

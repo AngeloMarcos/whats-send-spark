@@ -145,6 +145,36 @@ export function ListUpload({ onDataReady, onClear }: ListUploadProps) {
     onClear();
   };
 
+  // Helper to clean name field - extract real name from URLs
+  const cleanName = (rawName: string | undefined): string | undefined => {
+    if (!rawName) return undefined;
+    const str = String(rawName).trim();
+    
+    // If it's a URL, try to extract the name parameter
+    if (str.startsWith('http') || str.includes('cnpj.biz')) {
+      const nameMatch = str.match(/[?&]name=([^&]+)/);
+      if (nameMatch) {
+        return decodeURIComponent(nameMatch[1].replace(/%20/g, ' '));
+      }
+      return undefined; // Don't use URL as name
+    }
+    
+    return str || undefined;
+  };
+
+  // Helper to clean extra_data keys - remove problematic characters
+  const cleanExtraData = (data: Record<string, unknown>): Record<string, unknown> => {
+    const cleaned: Record<string, unknown> = {};
+    Object.entries(data).forEach(([key, value]) => {
+      // Skip keys that look like phone numbers or have weird characters
+      const cleanKey = key.replace(/[^a-zA-Z0-9_]/g, '_').replace(/__+/g, '_');
+      // Skip EMPTY suffixed keys
+      if (cleanKey.includes('EMPTY') || cleanKey.length > 50) return;
+      cleaned[cleanKey] = value;
+    });
+    return cleaned;
+  };
+
   // Auto-sync data when phone column is selected
   useEffect(() => {
     if (!phoneColumn || rows.length === 0) return;
@@ -166,30 +196,29 @@ export function ListUpload({ onDataReady, onClear }: ListUploadProps) {
         const phoneMatch = whatsappLink.match(/phone=(\d+)/);
         if (phoneMatch && phoneMatch[1].length >= 10) {
           rawPhone = phoneMatch[1];
-          console.log('Phone extracted from WhatsApp link:', rawPhone);
         } else if (extraData['telefones']) {
           const telefonesValue = String(extraData['telefones']).replace(/\D/g, '');
           if (telefonesValue.length >= 10) {
             rawPhone = telefonesValue;
-            console.log('Phone extracted from telefones field:', rawPhone);
           }
         }
       }
       
       const phone = formatToInternational(rawPhone);
-      console.log('Phone mapping - Original:', row[phoneColumn], '-> Formatted:', phone);
-      const name = nameColumn ? String(row[nameColumn] ?? '') : undefined;
+      const rawName = nameColumn ? String(row[nameColumn] ?? '') : undefined;
+      const name = cleanName(rawName);
       
-      const extra_data: Record<string, unknown> = {};
+      const rawExtraData: Record<string, unknown> = {};
       headers.forEach(h => {
         if (h !== phoneColumn && h !== nameColumn) {
-          extra_data[h] = row[h];
+          rawExtraData[h] = row[h];
         }
       });
+      const extra_data = cleanExtraData(rawExtraData);
 
       return {
         phone,
-        name: name || undefined,
+        name,
         extra_data,
         is_valid: validationResult?.validContacts.some(
           vc => String(vc[phoneColumn]) === String(row[phoneColumn])
