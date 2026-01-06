@@ -17,6 +17,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SkeletonTabs, SkeletonCard } from '@/components/ui/loading-skeletons';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { ErrorBoundary } from '@/components/ui/error-boundary';
 import { FileSpreadsheet, Link, Activity } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
@@ -42,16 +43,32 @@ export default function Campaigns() {
   const fetchData = async () => {
     setIsLoading(true);
     try {
+      console.log('[Campaigns] Fetching data...');
       const [listsRes, templatesRes, campaignsRes] = await Promise.all([
         supabase.from('lists').select('*').order('created_at', { ascending: false }),
         supabase.from('templates').select('*').order('created_at', { ascending: false }),
         supabase.from('campaigns').select('*, list:lists(*), template:templates(*)').order('created_at', { ascending: false }),
       ]);
 
+      console.log('[Campaigns] Lists:', listsRes.data?.length, listsRes.error);
+      console.log('[Campaigns] Templates:', templatesRes.data?.length, templatesRes.error);
+      console.log('[Campaigns] Campaigns:', campaignsRes.data?.length, campaignsRes.error);
+
       if (listsRes.data) setLists(listsRes.data as List[]);
       if (templatesRes.data) setTemplates(templatesRes.data as Template[]);
-      if (campaignsRes.data) setCampaigns(campaignsRes.data as Campaign[]);
+      if (campaignsRes.data) {
+        // Validate campaign data to prevent render errors
+        const validCampaigns = campaignsRes.data.map(c => ({
+          ...c,
+          name: c.name || 'Sem nome',
+          contacts_sent: c.contacts_sent ?? 0,
+          contacts_failed: c.contacts_failed ?? 0,
+          contacts_total: c.contacts_total ?? 0,
+        }));
+        setCampaigns(validCampaigns as Campaign[]);
+      }
     } catch (error) {
+      console.error('[Campaigns] Error fetching data:', error);
       toast({
         title: 'Erro ao carregar dados',
         description: 'Não foi possível carregar os dados. Tente novamente.',
@@ -81,6 +98,7 @@ export default function Campaigns() {
   const runningCampaigns = campaigns.filter(c => c.status === 'sending');
 
   return (
+    <ErrorBoundary>
     <AppLayout>
       <AppHeader 
         title="Campanhas" 
@@ -191,5 +209,6 @@ export default function Campaigns() {
         )}
       </div>
     </AppLayout>
+    </ErrorBoundary>
   );
 }
