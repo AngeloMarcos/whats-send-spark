@@ -55,14 +55,26 @@ export function DashboardCharts({ dailyStats, topCampaigns, stats, isLoading }: 
     );
   }
 
+  // Ensure safe values to prevent crashes
+  const safeStats = {
+    totalSent: stats?.totalSent ?? 0,
+    totalFailed: stats?.totalFailed ?? 0,
+  };
+  const safeDailyStats = dailyStats || [];
+  const safeTopCampaigns = (topCampaigns || []).map(c => ({
+    ...c,
+    name: c.name || 'Sem nome',
+    contacts_sent: c.contacts_sent ?? 0,
+  }));
+
   const pieData = [
-    { name: 'Sucesso', value: stats.totalSent, color: COLORS.success },
-    { name: 'Falhas', value: stats.totalFailed, color: COLORS.error },
+    { name: 'Sucesso', value: safeStats.totalSent, color: COLORS.success },
+    { name: 'Falhas', value: safeStats.totalFailed, color: COLORS.error },
   ].filter(d => d.value > 0);
 
-  const hasData = stats.totalSent > 0 || stats.totalFailed > 0;
-  const hasDailyData = dailyStats.some(d => d.sent > 0 || d.failed > 0);
-  const hasTopCampaigns = topCampaigns.length > 0;
+  const hasData = safeStats.totalSent > 0 || safeStats.totalFailed > 0;
+  const hasDailyData = safeDailyStats.some(d => (d.sent ?? 0) > 0 || (d.failed ?? 0) > 0);
+  const hasTopCampaigns = safeTopCampaigns.length > 0;
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 animate-fade-in">
@@ -77,7 +89,7 @@ export function DashboardCharts({ dailyStats, topCampaigns, stats, isLoading }: 
         <CardContent>
           {hasDailyData ? (
             <ResponsiveContainer width="100%" height={200}>
-              <LineChart data={dailyStats}>
+              <LineChart data={safeDailyStats}>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                 <XAxis 
                   dataKey="date" 
@@ -180,7 +192,7 @@ export function DashboardCharts({ dailyStats, topCampaigns, stats, isLoading }: 
         <CardContent>
           {hasTopCampaigns ? (
             <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={topCampaigns} layout="vertical">
+              <BarChart data={safeTopCampaigns} layout="vertical">
                 <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                 <XAxis type="number" tick={{ fontSize: 11 }} />
                 <YAxis 

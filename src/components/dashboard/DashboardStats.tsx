@@ -80,37 +80,48 @@ export function DashboardStats({ stats, isLoading }: DashboardStatsProps) {
     );
   }
 
+  // Ensure stats has fallback values to prevent crashes
+  const safeStats = {
+    totalCampaigns: stats?.totalCampaigns ?? 0,
+    activeCampaigns: stats?.activeCampaigns ?? 0,
+    messagesToday: stats?.messagesToday ?? 0,
+    messagesThisWeek: stats?.messagesThisWeek ?? 0,
+    successRate: stats?.successRate ?? 0,
+    totalSent: stats?.totalSent ?? 0,
+    totalFailed: stats?.totalFailed ?? 0,
+  };
+
   return (
     <TooltipProvider>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 animate-fade-in">
         <StatsCard
           title="Total de Campanhas"
-          value={stats.totalCampaigns}
-          subtitle={`${stats.activeCampaigns} ativas agora`}
+          value={safeStats.totalCampaigns}
+          subtitle={`${safeStats.activeCampaigns} ativas agora`}
           icon={<BarChart3 className="h-6 w-6 text-primary-foreground" />}
           colorClass="bg-primary"
           tooltip="Número total de campanhas criadas"
         />
         <StatsCard
           title="Enviadas Hoje"
-          value={stats.messagesToday}
-          subtitle={`${stats.messagesThisWeek} esta semana`}
+          value={safeStats.messagesToday}
+          subtitle={`${safeStats.messagesThisWeek} esta semana`}
           icon={<MessageSquare className="h-6 w-6 text-primary-foreground" />}
           colorClass="bg-primary"
           tooltip="Mensagens enviadas com sucesso hoje"
         />
         <StatsCard
           title="Taxa de Sucesso"
-          value={`${stats.successRate}%`}
-          subtitle={`${stats.totalSent} enviados / ${stats.totalFailed} falhas`}
+          value={`${safeStats.successRate}%`}
+          subtitle={`${safeStats.totalSent} enviados / ${safeStats.totalFailed} falhas`}
           icon={<TrendingUp className="h-6 w-6 text-primary-foreground" />}
           colorClass="bg-primary"
           tooltip="Porcentagem de mensagens enviadas com sucesso"
         />
         <StatsCard
           title="Campanhas Ativas"
-          value={stats.activeCampaigns}
-          subtitle={stats.activeCampaigns > 0 ? "Em andamento" : "Nenhuma ativa"}
+          value={safeStats.activeCampaigns}
+          subtitle={safeStats.activeCampaigns > 0 ? "Em andamento" : "Nenhuma ativa"}
           icon={<Zap className="h-6 w-6 text-primary-foreground" />}
           colorClass="bg-primary"
           tooltip="Campanhas sendo enviadas agora"
