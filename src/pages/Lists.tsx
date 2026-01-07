@@ -20,6 +20,7 @@ import { SkeletonCard } from '@/components/ui/loading-skeletons';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
 import { Plus, Loader2, Trash2, Edit, Upload, Users, Eye, CheckCircle2, Search, X, CheckCircle, AlertCircle, ArrowUpDown } from 'lucide-react';
 import { ListUpload, ParsedContact } from '@/components/lists/ListUpload';
+import { safeJsonClone } from '@/lib/safeJson';
 
 // Safe text display - truncates and handles problematic data
 const safeDisplayText = (text: string | null | undefined, maxLength: number = 50): string => {
@@ -64,15 +65,19 @@ export default function Lists() {
   const [sortBy, setSortBy] = useState<'name' | 'phone' | 'created_at'>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
-  // Filtered and sorted contacts
+  // Filtered and sorted contacts - 100% null-safe
   const filteredContacts = useMemo(() => {
     return contacts
       .filter(contact => {
-        // Text search filter
+        // Null-safe text search filter
+        const phone = String(contact.phone ?? '');
+        const name = String(contact.name ?? '');
+        const searchLower = (searchTerm ?? '').toLowerCase();
+        
         const matchesSearch = 
           !searchTerm ||
-          contact.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          contact.phone.includes(searchTerm);
+          name.toLowerCase().includes(searchLower) ||
+          phone.includes(searchTerm);
         
         // Status filter
         const matchesStatus = 
@@ -85,11 +90,13 @@ export default function Lists() {
       .sort((a, b) => {
         let comparison = 0;
         if (sortBy === 'name') {
-          comparison = (a.name || '').localeCompare(b.name || '');
+          comparison = String(a.name ?? '').localeCompare(String(b.name ?? ''));
         } else if (sortBy === 'phone') {
-          comparison = a.phone.localeCompare(b.phone);
+          comparison = String(a.phone ?? '').localeCompare(String(b.phone ?? ''));
         } else {
-          comparison = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+          const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+          const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+          comparison = dateA - dateB;
         }
         return sortOrder === 'asc' ? comparison : -comparison;
       });
@@ -112,13 +119,36 @@ export default function Lists() {
 
   const fetchLists = async () => {
     setIsLoading(true);
-    const { data, error } = await supabase
-      .from('lists')
-      .select('*')
-      .order('created_at', { ascending: false });
+    try {
+      const { data, error } = await supabase
+        .from('lists')
+        .select('*')
+        .order('created_at', { ascending: false });
 
-    if (data) setLists(data as List[]);
-    setIsLoading(false);
+      if (error) {
+        console.error('Error fetching lists:', error);
+        toast({ 
+          title: 'Erro ao carregar listas', 
+          description: error.message,
+          variant: 'destructive' 
+        });
+        setLists([]);
+      } else {
+        // Normalize list data
+        const normalizedLists = (data ?? []).map(list => ({
+          ...list,
+          name: String(list.name ?? ''),
+          description: list.description ?? null,
+          contact_count: list.contact_count ?? 0,
+        })) as List[];
+        setLists(normalizedLists);
+      }
+    } catch (err) {
+      console.error('Unexpected error fetching lists:', err);
+      setLists([]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const fetchContacts = async (listId: string) => {
@@ -140,7 +170,16 @@ export default function Lists() {
         });
         setContacts([]);
       } else {
-        setContacts(data as Contact[]);
+        // Normalize contact data to prevent null-related crashes
+        const normalizedContacts = (data ?? []).map(c => ({
+          ...c,
+          phone: String(c.phone ?? ''),
+          name: c.name ? String(c.name) : null,
+          extra_data: (c.extra_data && typeof c.extra_data === 'object') ? c.extra_data : {},
+          is_valid: c.is_valid !== false,
+          created_at: c.created_at ?? new Date().toISOString(),
+        })) as Contact[];
+        setContacts(normalizedContacts);
       }
     } catch (err) {
       console.error('Unexpected error:', err);
@@ -232,10 +271,10 @@ export default function Lists() {
           const batch = uploadedContacts.slice(i, i + BATCH_SIZE).map(c => ({
             user_id: user.id,
             list_id: newList.id,
-            phone: c.phone,
-            name: c.name || null,
-            extra_data: c.extra_data ? JSON.parse(JSON.stringify(c.extra_data)) : null,
-            is_valid: c.is_valid,
+            phone: String(c.phone ?? ''),
+            name: c.name ? String(c.name) : null,
+            extra_data: c.extra_data ? safeJsonClone(c.extra_data) : null,
+            is_valid: c.is_valid !== false,
           }));
 
           const { error: contactsError } = await supabase

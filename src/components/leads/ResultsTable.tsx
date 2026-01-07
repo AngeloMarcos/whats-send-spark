@@ -50,12 +50,12 @@ export function ResultsTable({ leads, selectedLeads, onSelectionChange }: Result
   const filteredAndSortedLeads = useMemo(() => {
     let result = [...leads];
 
-    // Apply name filter
+    // Apply name filter - null-safe
     if (nameFilter.trim()) {
       const search = nameFilter.toLowerCase();
       result = result.filter(lead => 
-        lead.name.toLowerCase().includes(search) ||
-        lead.phone.includes(search)
+        String(lead.name ?? '').toLowerCase().includes(search) ||
+        String(lead.phone ?? '').includes(search)
       );
     }
 
@@ -65,12 +65,12 @@ export function ResultsTable({ leads, selectedLeads, onSelectionChange }: Result
       result = result.filter(lead => (lead.rating || 0) >= minRating);
     }
 
-    // Apply sorting
+    // Apply sorting - null-safe
     result.sort((a, b) => {
       let comparison = 0;
       switch (sortField) {
         case 'name':
-          comparison = a.name.localeCompare(b.name);
+          comparison = String(a.name ?? '').localeCompare(String(b.name ?? ''));
           break;
         case 'rating':
           comparison = (a.rating || 0) - (b.rating || 0);
