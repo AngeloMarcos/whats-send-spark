@@ -114,11 +114,15 @@ export function useSendingConfig() {
     const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
     const currentDay = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][now.getDay()];
 
-    if (!config.allowed_days.includes(currentDay)) {
+    // Null-safe check for allowed_days array
+    const allowedDays = config.allowed_days ?? [];
+    if (!Array.isArray(allowedDays) || !allowedDays.includes(currentDay)) {
       return false;
     }
 
-    return currentTime >= config.allowed_start_time && currentTime <= config.allowed_end_time;
+    const startTime = config.allowed_start_time ?? '08:00';
+    const endTime = config.allowed_end_time ?? '18:00';
+    return currentTime >= startTime && currentTime <= endTime;
   }, [config.allowed_days, config.allowed_start_time, config.allowed_end_time]);
 
   return {

@@ -63,13 +63,17 @@ export default function Templates() {
 
   const filteredTemplates = useMemo(() => {
     return templates.filter((template) => {
-      // Search filter
+      // Null-safe search filter
       if (searchQuery) {
-        const query = searchQuery.toLowerCase();
+        const query = (searchQuery ?? '').toLowerCase();
+        const name = String(template.name ?? '').toLowerCase();
+        const content = String(template.content ?? '').toLowerCase();
+        const description = String(template.description ?? '').toLowerCase();
+        
         const matchesSearch = 
-          template.name.toLowerCase().includes(query) ||
-          template.content.toLowerCase().includes(query) ||
-          template.description?.toLowerCase().includes(query);
+          name.includes(query) ||
+          content.includes(query) ||
+          description.includes(query);
         if (!matchesSearch) return false;
       }
       

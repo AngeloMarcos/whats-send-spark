@@ -47,13 +47,17 @@ export function CampaignHistory({ campaigns, onRefresh, isLoading, onOpenMonitor
   const [statusFilter, setStatusFilter] = useState<CampaignStatus>('all');
   const [dateFilter, setDateFilter] = useState<DateFilter>('all');
 
-  // Filtered campaigns
+  // Filtered campaigns - null-safe
   const filteredCampaigns = useMemo(() => {
     return campaigns.filter(campaign => {
-      // Search filter
-      const matchesSearch = searchQuery === '' || 
-        campaign.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        campaign.list?.name?.toLowerCase().includes(searchQuery.toLowerCase());
+      // Null-safe search filter
+      const campaignName = String(campaign.name ?? '').toLowerCase();
+      const listName = String(campaign.list?.name ?? '').toLowerCase();
+      const searchLower = (searchQuery ?? '').toLowerCase();
+      
+      const matchesSearch = !searchQuery || 
+        campaignName.includes(searchLower) ||
+        listName.includes(searchLower);
       
       // Status filter
       const matchesStatus = statusFilter === 'all' || campaign.status === statusFilter;
