@@ -42,35 +42,51 @@ export const useDashboardStats = () => {
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchStats = useCallback(async () => {
-    if (!user) return;
+    if (!user) {
+      setIsLoading(false);
+      return;
+    }
 
     setIsLoading(true);
     try {
       // Get campaign counts
-      const { data: campaigns } = await supabase
+      const { data: campaigns, error: campaignsError } = await supabase
         .from('campaigns')
         .select('id, status, contacts_sent, contacts_failed, name, created_at')
         .eq('user_id', user.id);
 
-      if (campaigns) {
-        const totalCampaigns = campaigns.length;
-        const activeCampaigns = campaigns.filter(c => c.status === 'sending').length;
-        const totalSent = campaigns.reduce((sum, c) => sum + (c.contacts_sent || 0), 0);
-        const totalFailed = campaigns.reduce((sum, c) => sum + (c.contacts_failed || 0), 0);
+      if (campaignsError) {
+        console.error('[useDashboardStats] Error fetching campaigns:', campaignsError);
+        throw campaignsError;
+      }
+
+      // Validate and normalize campaign data
+      const validCampaigns = (campaigns || []).map(c => ({
+        ...c,
+        contacts_sent: c.contacts_sent ?? 0,
+        contacts_failed: c.contacts_failed ?? 0,
+        name: c.name || 'Sem nome',
+      }));
+
+      if (validCampaigns.length >= 0) {
+        const totalCampaigns = validCampaigns.length;
+        const activeCampaigns = validCampaigns.filter(c => c.status === 'sending').length;
+        const totalSent = validCampaigns.reduce((sum, c) => sum + c.contacts_sent, 0);
+        const totalFailed = validCampaigns.reduce((sum, c) => sum + c.contacts_failed, 0);
         const successRate = totalSent + totalFailed > 0 
           ? Math.round((totalSent / (totalSent + totalFailed)) * 100) 
           : 0;
 
         // Get top 5 campaigns by sent count
-        const sortedCampaigns = [...campaigns]
-          .sort((a, b) => (b.contacts_sent || 0) - (a.contacts_sent || 0))
+        const sortedCampaigns = [...validCampaigns]
+          .sort((a, b) => b.contacts_sent - a.contacts_sent)
           .slice(0, 5)
-          .filter(c => (c.contacts_sent || 0) > 0);
+          .filter(c => c.contacts_sent > 0);
 
         setTopCampaigns(sortedCampaigns.map(c => ({
           id: c.id,
           name: c.name,
-          contacts_sent: c.contacts_sent || 0,
+          contacts_sent: c.contacts_sent,
         })));
 
         // Get messages by time period from campaign_queue
@@ -138,7 +154,20 @@ export const useDashboardStats = () => {
         setDailyStats(dailyData);
       }
     } catch (error) {
-      console.error('Error fetching dashboard stats:', error);
+      console.error('[useDashboardStats] Error fetching dashboard stats:', error);
+      // Set default values on error to prevent UI crash
+      setStats({
+        totalCampaigns: 0,
+        activeCampaigns: 0,
+        messagesToday: 0,
+        messagesThisWeek: 0,
+        messagesThisMonth: 0,
+        successRate: 0,
+        totalSent: 0,
+        totalFailed: 0,
+      });
+      setDailyStats([]);
+      setTopCampaigns([]);
     } finally {
       setIsLoading(false);
     }
