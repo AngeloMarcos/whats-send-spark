@@ -2,6 +2,8 @@ import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle, RefreshCw, Copy, RotateCcw } from 'lucide-react';
 import { Button } from './button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './card';
+import { reportError, serializeUnknownError } from '@/lib/errorReporting';
+import { toast } from 'sonner';
 
 interface Props {
   children: ReactNode;
@@ -36,6 +38,15 @@ export class ErrorBoundary extends Component<Props, State> {
         timestamp: new Date().toISOString(),
       }));
     } catch {}
+    
+    // Report to backend
+    const { message, stack } = serializeUnknownError(error);
+    reportError({
+      message,
+      stack,
+      componentStack: errorInfo?.componentStack ?? undefined,
+      source: 'ErrorBoundary',
+    });
   }
 
   private handleRetry = () => {
@@ -56,8 +67,8 @@ export class ErrorBoundary extends Component<Props, State> {
     };
     
     navigator.clipboard.writeText(JSON.stringify(errorDetails, null, 2))
-      .then(() => alert('Detalhes do erro copiados!'))
-      .catch(() => alert('Falha ao copiar'));
+      .then(() => toast.success('Detalhes do erro copiados!'))
+      .catch(() => toast.error('Falha ao copiar'));
   };
 
   public render() {
