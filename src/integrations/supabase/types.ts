@@ -14,6 +14,42 @@ export type Database = {
   }
   public: {
     Tables: {
+      app_error_reports: {
+        Row: {
+          component_stack: string | null
+          created_at: string
+          id: string
+          message: string
+          metadata: Json | null
+          route: string
+          source: string
+          stack: string | null
+          user_id: string
+        }
+        Insert: {
+          component_stack?: string | null
+          created_at?: string
+          id?: string
+          message: string
+          metadata?: Json | null
+          route: string
+          source?: string
+          stack?: string | null
+          user_id: string
+        }
+        Update: {
+          component_stack?: string | null
+          created_at?: string
+          id?: string
+          message?: string
+          metadata?: Json | null
+          route?: string
+          source?: string
+          stack?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       audit_logs: {
         Row: {
           action: string
