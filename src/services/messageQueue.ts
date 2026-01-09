@@ -147,19 +147,54 @@ export async function createMessageQueue(
   config: SendingConfig,
   message: string
 ): Promise<QueueCreationResult> {
+  // Input validation
+  if (!campaignId?.trim()) {
+    return {
+      success: false,
+      totalItems: 0,
+      scheduledItems: 0,
+      error: 'Campaign ID é obrigatório',
+    };
+  }
+
+  if (!Array.isArray(contacts) || contacts.length === 0) {
+    return {
+      success: false,
+      totalItems: 0,
+      scheduledItems: 0,
+      error: 'Lista de contatos vazia',
+    };
+  }
+
+  // Filter valid contacts
+  const validContacts = contacts.filter(contact => {
+    if (!contact) return false;
+    const phone = String(contact.phone || '').replace(/\D/g, '');
+    return phone.length >= 10 && phone.length <= 15;
+  });
+
+  if (validContacts.length === 0) {
+    return {
+      success: false,
+      totalItems: contacts.length,
+      scheduledItems: 0,
+      error: 'Nenhum contato com telefone válido',
+    };
+  }
+
   try {
     const now = new Date();
     let scheduledTime = isWithinAllowedHours(config) ? now : getNextAllowedTime(config);
     
-    const queueItems = contacts.map((contact, index) => {
+    const queueItems = validContacts.map((contact, index) => {
       const interval = calculateRandomizedInterval(config.send_interval_seconds, config.randomize_interval);
       const scheduled = index === 0 ? scheduledTime : addSeconds(scheduledTime, interval);
       scheduledTime = scheduled;
 
       return {
         campaign_id: campaignId,
-        contact_phone: contact.phone,
-        contact_name: contact.name || null,
+        contact_phone: String(contact.phone || '').trim(),
+        contact_name: contact.name ? String(contact.name).trim() : null,
         contact_data: JSON.parse(JSON.stringify(contact)) as Json,
         status: 'pending' as const,
         scheduled_for: scheduled.toISOString(),
@@ -167,27 +202,54 @@ export async function createMessageQueue(
       };
     });
 
-    // Inserir em batches de 100
+    // Inserir em batches de 100 - continue on partial failure
     const batchSize = 100;
     let insertedCount = 0;
+    const failedBatches: number[] = [];
     
     for (let i = 0; i < queueItems.length; i += batchSize) {
       const batch = queueItems.slice(i, i + batchSize);
-      const { error } = await supabase
-        .from('campaign_queue')
-        .insert(batch);
+      const batchIndex = Math.floor(i / batchSize);
+      
+      try {
+        const { error } = await supabase
+          .from('campaign_queue')
+          .insert(batch);
 
-      if (error) {
-        console.error('Erro ao inserir batch:', error);
-        throw error;
+        if (error) {
+          console.error(`Erro ao inserir batch ${batchIndex}:`, error);
+          failedBatches.push(batchIndex);
+          // Continue with next batch instead of throwing
+          continue;
+        }
+        insertedCount += batch.length;
+      } catch (batchError) {
+        console.error(`Erro crítico no batch ${batchIndex}:`, batchError);
+        failedBatches.push(batchIndex);
+        // Continue with next batch
       }
-      insertedCount += batch.length;
     }
 
+    // Return partial success if some batches succeeded
+    if (insertedCount > 0) {
+      const errorMsg = failedBatches.length > 0 
+        ? `${failedBatches.length} batch(es) falharam, ${insertedCount} contatos inseridos`
+        : undefined;
+      
+      return {
+        success: true,
+        totalItems: validContacts.length,
+        scheduledItems: insertedCount,
+        error: errorMsg,
+      };
+    }
+
+    // All batches failed
     return {
-      success: true,
-      totalItems: contacts.length,
-      scheduledItems: insertedCount,
+      success: false,
+      totalItems: validContacts.length,
+      scheduledItems: 0,
+      error: 'Falha ao inserir todos os batches',
     };
   } catch (error) {
     console.error('Erro ao criar fila:', error);
