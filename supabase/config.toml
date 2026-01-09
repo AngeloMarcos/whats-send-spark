@@ -17,3 +17,6 @@ verify_jwt = true
 
 [functions.search-google-places]
 verify_jwt = true
+
+[functions.disparo-leads]
+verify_jwt = false
