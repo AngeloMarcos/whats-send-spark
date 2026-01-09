@@ -86,6 +86,33 @@ export type Database = {
         }
         Relationships: []
       }
+      blacklist: {
+        Row: {
+          added_at: string | null
+          added_by: string | null
+          id: string
+          phone_number: string
+          reason: string | null
+          user_id: string
+        }
+        Insert: {
+          added_at?: string | null
+          added_by?: string | null
+          id?: string
+          phone_number: string
+          reason?: string | null
+          user_id: string
+        }
+        Update: {
+          added_at?: string | null
+          added_by?: string | null
+          id?: string
+          phone_number?: string
+          reason?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       campaign_logs: {
         Row: {
           campaign_id: string
@@ -185,6 +212,64 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "contact_send_history"
             referencedColumns: ["campaign_id"]
+          },
+        ]
+      }
+      campaign_triggers: {
+        Row: {
+          campaign_id: string | null
+          created_at: string | null
+          delay_minutes: number | null
+          id: string
+          is_active: boolean | null
+          template_id: string | null
+          trigger_condition: string | null
+          trigger_type: string
+          user_id: string
+        }
+        Insert: {
+          campaign_id?: string | null
+          created_at?: string | null
+          delay_minutes?: number | null
+          id?: string
+          is_active?: boolean | null
+          template_id?: string | null
+          trigger_condition?: string | null
+          trigger_type: string
+          user_id: string
+        }
+        Update: {
+          campaign_id?: string | null
+          created_at?: string | null
+          delay_minutes?: number | null
+          id?: string
+          is_active?: boolean | null
+          template_id?: string | null
+          trigger_condition?: string | null
+          trigger_type?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_triggers_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_triggers_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "contact_send_history"
+            referencedColumns: ["campaign_id"]
+          },
+          {
+            foreignKeyName: "campaign_triggers_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "templates"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -319,11 +404,53 @@ export type Database = {
           },
         ]
       }
+      lead_responses: {
+        Row: {
+          created_at: string | null
+          id: string
+          lead_id: string
+          message_id: string | null
+          responded_at: string | null
+          response_text: string | null
+          response_type: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          lead_id: string
+          message_id?: string | null
+          responded_at?: string | null
+          response_text?: string | null
+          response_type?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          lead_id?: string
+          message_id?: string | null
+          responded_at?: string | null
+          response_text?: string | null
+          response_type?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lead_responses_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       leads: {
         Row: {
           atividade: string | null
           atividades_secundarias: Json | null
           bairro: string | null
+          bloqueado: boolean | null
           capital_social: string | null
           cep: string | null
           cnpj: string | null
@@ -341,6 +468,7 @@ export type Database = {
           nome: string | null
           nome_fantasia: string | null
           numero: string | null
+          numero_tentativas: number | null
           owner_name: string | null
           porte_empresa: string | null
           razao_social: string | null
@@ -353,6 +481,7 @@ export type Database = {
           telefones_array: Json | null
           tipo: string | null
           uf: string | null
+          ultimo_contato: string | null
           updated_at: string | null
           user_id: string
           whatsapp_links: Json | null
@@ -361,6 +490,7 @@ export type Database = {
           atividade?: string | null
           atividades_secundarias?: Json | null
           bairro?: string | null
+          bloqueado?: boolean | null
           capital_social?: string | null
           cep?: string | null
           cnpj?: string | null
@@ -378,6 +508,7 @@ export type Database = {
           nome?: string | null
           nome_fantasia?: string | null
           numero?: string | null
+          numero_tentativas?: number | null
           owner_name?: string | null
           porte_empresa?: string | null
           razao_social?: string | null
@@ -390,6 +521,7 @@ export type Database = {
           telefones_array?: Json | null
           tipo?: string | null
           uf?: string | null
+          ultimo_contato?: string | null
           updated_at?: string | null
           user_id: string
           whatsapp_links?: Json | null
@@ -398,6 +530,7 @@ export type Database = {
           atividade?: string | null
           atividades_secundarias?: Json | null
           bairro?: string | null
+          bloqueado?: boolean | null
           capital_social?: string | null
           cep?: string | null
           cnpj?: string | null
@@ -415,6 +548,7 @@ export type Database = {
           nome?: string | null
           nome_fantasia?: string | null
           numero?: string | null
+          numero_tentativas?: number | null
           owner_name?: string | null
           porte_empresa?: string | null
           razao_social?: string | null
@@ -427,6 +561,7 @@ export type Database = {
           telefones_array?: Json | null
           tipo?: string | null
           uf?: string | null
+          ultimo_contato?: string | null
           updated_at?: string | null
           user_id?: string
           whatsapp_links?: Json | null
@@ -519,6 +654,92 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      message_logs: {
+        Row: {
+          campaign_id: string | null
+          created_at: string | null
+          delivered_at: string | null
+          error_message: string | null
+          id: string
+          lead_id: string
+          message_id: string | null
+          message_text: string | null
+          phone_number: string | null
+          read_at: string | null
+          retry_count: number | null
+          sent_at: string | null
+          status: string | null
+          template_id: string | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          campaign_id?: string | null
+          created_at?: string | null
+          delivered_at?: string | null
+          error_message?: string | null
+          id?: string
+          lead_id: string
+          message_id?: string | null
+          message_text?: string | null
+          phone_number?: string | null
+          read_at?: string | null
+          retry_count?: number | null
+          sent_at?: string | null
+          status?: string | null
+          template_id?: string | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          campaign_id?: string | null
+          created_at?: string | null
+          delivered_at?: string | null
+          error_message?: string | null
+          id?: string
+          lead_id?: string
+          message_id?: string | null
+          message_text?: string | null
+          phone_number?: string | null
+          read_at?: string | null
+          retry_count?: number | null
+          sent_at?: string | null
+          status?: string | null
+          template_id?: string | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "message_logs_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "message_logs_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "contact_send_history"
+            referencedColumns: ["campaign_id"]
+          },
+          {
+            foreignKeyName: "message_logs_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "message_logs_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "templates"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       pesquisas_salvas: {
         Row: {
