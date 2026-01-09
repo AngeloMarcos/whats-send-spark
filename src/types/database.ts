@@ -117,4 +117,13 @@ export interface Lead {
   extra_data: Record<string, unknown>;
   created_at: string;
   updated_at: string;
+  // ReceitaWS fields
+  cnpj?: string | null;
+  email?: string | null;
+  razao_social?: string | null;
+  owner_name?: string | null;
+  situacao?: string | null;
+  atividade?: string | null;
+  endereco?: string | null;
+  source?: string | null;
 }

@@ -1,12 +1,14 @@
 import { useState } from 'react';
-import { MapPin, Search, Phone, Clock, TrendingUp } from 'lucide-react';
+import { MapPin, Search, Phone, Clock, TrendingUp, Building } from 'lucide-react';
 import { useGooglePlaces, SearchMetrics } from '@/hooks/useGooglePlaces';
 import { SearchForm } from '@/components/leads/SearchForm';
 import { ResultsTable } from '@/components/leads/ResultsTable';
 import { LeadActions } from '@/components/leads/LeadActions';
+import { CNPJSearchForm } from '@/components/leads/CNPJSearchForm';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 function StatsCards({ metrics }: { metrics: SearchMetrics }) {
   return (
@@ -91,35 +93,54 @@ export default function LeadCapture() {
       <div className="space-y-6">
         <div className="flex items-center gap-3">
           <div className="h-10 w-10 rounded-lg bg-primary flex items-center justify-center">
-            <MapPin className="h-5 w-5 text-primary-foreground" />
+            <Search className="h-5 w-5 text-primary-foreground" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold">🗺️ Capturar Leads do Google Maps</h1>
+            <h1 className="text-2xl font-bold">🔍 Capturar Leads</h1>
             <p className="text-muted-foreground">
-              Encontre estabelecimentos e adicione às suas listas
+              Encontre empresas via Google Maps ou CNPJ
             </p>
           </div>
         </div>
 
-        <SearchForm onSearch={handleSearch} isLoading={isLoading} />
+        <Tabs defaultValue="google-maps" className="w-full">
+          <TabsList className="grid w-full grid-cols-2 max-w-md">
+            <TabsTrigger value="google-maps" className="flex items-center gap-2">
+              <MapPin className="h-4 w-4" />
+              Google Maps
+            </TabsTrigger>
+            <TabsTrigger value="cnpj" className="flex items-center gap-2">
+              <Building className="h-4 w-4" />
+              Busca CNPJ
+            </TabsTrigger>
+          </TabsList>
 
-        {error && (
-          <Alert variant="destructive">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
+          <TabsContent value="google-maps" className="space-y-6 mt-6">
+            <SearchForm onSearch={handleSearch} isLoading={isLoading} />
 
-        {metrics && <StatsCards metrics={metrics} />}
+            {error && (
+              <Alert variant="destructive">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
 
-        {leads.length > 0 && (
-          <LeadActions leads={leads} selectedLeads={selectedLeads} />
-        )}
+            {metrics && <StatsCards metrics={metrics} />}
 
-        <ResultsTable
-          leads={leads}
-          selectedLeads={selectedLeads}
-          onSelectionChange={setSelectedLeads}
-        />
+            {leads.length > 0 && (
+              <LeadActions leads={leads} selectedLeads={selectedLeads} />
+            )}
+
+            <ResultsTable
+              leads={leads}
+              selectedLeads={selectedLeads}
+              onSelectionChange={setSelectedLeads}
+            />
+          </TabsContent>
+
+          <TabsContent value="cnpj" className="mt-6">
+            <CNPJSearchForm />
+          </TabsContent>
+        </Tabs>
       </div>
     </AppLayout>
   );
