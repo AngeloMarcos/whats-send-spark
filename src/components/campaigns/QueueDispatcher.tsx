@@ -33,7 +33,7 @@ interface QueueDispatcherProps {
   progress: number;
   secondsUntilNext: number;
   remainingCount: number;
-  onStart: (intervalMinutes: number) => void;
+  onStart: (intervalSeconds: number) => void;
   onPause: () => void;
   onResume: () => void;
   onCancel: () => void;
@@ -42,7 +42,7 @@ interface QueueDispatcherProps {
   totalContacts: number;
   disabled?: boolean;
   scheduledAt?: string | null;
-  onStartScheduled?: (intervalMinutes: number, scheduledAt: string) => void;
+  onStartScheduled?: (intervalSeconds: number, scheduledAt: string) => void;
 }
 
 function formatTime(seconds: number): string {
@@ -67,7 +67,7 @@ export function QueueDispatcher({
   scheduledAt,
   onStartScheduled,
 }: QueueDispatcherProps) {
-  const [intervalMinutes, setIntervalMinutes] = useState(5);
+  const [intervalSeconds, setIntervalSeconds] = useState(30);
   const [displaySeconds, setDisplaySeconds] = useState(secondsUntilNext);
   const [showPendingList, setShowPendingList] = useState(false);
 
@@ -98,29 +98,29 @@ export function QueueDispatcher({
             <div className="flex items-center justify-between">
               <Label>Intervalo entre envios</Label>
               <Badge variant="outline" className="font-mono">
-                {intervalMinutes} min
+                {intervalSeconds} seg
               </Badge>
             </div>
             <Slider
-              value={[intervalMinutes]}
-              onValueChange={(v) => setIntervalMinutes(v[0])}
-              min={1}
+              value={[intervalSeconds]}
+              onValueChange={(v) => setIntervalSeconds(v[0])}
+              min={10}
               max={60}
-              step={1}
+              step={5}
               className="w-full"
               disabled={disabled}
             />
             <div className="flex justify-between text-xs text-muted-foreground">
-              <span>1 min</span>
-              <span>30 min</span>
-              <span>60 min</span>
+              <span>10s</span>
+              <span>30s</span>
+              <span>60s</span>
             </div>
           </div>
 
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Clock className="h-4 w-4" />
             <span>
-              Tempo estimado: ~{Math.ceil((totalContacts - 1) * intervalMinutes)} minutos
+              Tempo estimado: ~{Math.ceil((totalContacts - 1) * intervalSeconds / 60)} min ({Math.round(3600 / intervalSeconds)} msgs/hora)
             </span>
           </div>
 
@@ -138,9 +138,9 @@ export function QueueDispatcher({
           <Button
             onClick={() => {
               if (scheduledAt && onStartScheduled) {
-                onStartScheduled(intervalMinutes, scheduledAt);
+                onStartScheduled(intervalSeconds, scheduledAt);
               } else {
-                onStart(intervalMinutes);
+                onStart(intervalSeconds);
               }
             }}
             className="w-full"
@@ -231,7 +231,7 @@ export function QueueDispatcher({
                   Enviando {state.sentCount + 1} de {state.totalContacts} mensagens...
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {remainingCount} restantes • ~{Math.ceil(remainingCount * state.intervalMinutes)} min estimados
+                  {remainingCount} restantes • ~{Math.ceil(remainingCount * state.intervalSeconds / 60)} min estimados
                 </div>
               </div>
             </div>

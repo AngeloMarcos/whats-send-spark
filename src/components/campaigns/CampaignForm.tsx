@@ -14,6 +14,9 @@ import { Send, Loader2, FlaskConical } from 'lucide-react';
 import { TestModeBanner } from './TestModeBanner';
 import { CampaignSchedulePreview } from './CampaignSchedulePreview';
 import { useSendingConfig } from '@/hooks/useSendingConfig';
+import { useQueueDispatcher } from '@/hooks/useQueueDispatcher';
+import { QueueDispatcher } from './QueueDispatcher';
+import { formatToInternational } from '@/lib/phoneValidation';
 
 interface CampaignFormProps {
   lists: List[];
@@ -26,6 +29,7 @@ export function CampaignForm({ lists, templates, onMessageChange, onCampaignCrea
   const { user } = useAuth();
   const { toast } = useToast();
   const { config: sendingConfig, isLoading: isLoadingConfig } = useSendingConfig();
+  const queueDispatcher = useQueueDispatcher();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isTestMode, setIsTestMode] = useState(false);
   const [defaultTestContact, setDefaultTestContact] = useState<{ phone: string; name: string } | null>(null);
@@ -135,8 +139,35 @@ export function CampaignForm({ lists, templates, onMessageChange, onCampaignCrea
       // Get selected list
       const selectedList = lists.find(l => l.id === formData.list_id);
       
+      // Fetch leads from the selected list
+      const { data: leadsData, error: leadsError } = await supabase
+        .from('leads')
+        .select('*')
+        .eq('list_id', formData.list_id)
+        .order('created_at', { ascending: true });
+
+      if (leadsError) throw leadsError;
+
+      if (!leadsData || leadsData.length === 0) {
+        toast({
+          title: 'Lista vazia',
+          description: 'A lista selecionada não possui contatos.',
+          variant: 'destructive',
+        });
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Convert leads to contact format
+      const contacts = leadsData.map(lead => ({
+        phone: formatToInternational(lead.telefones),
+        name: lead.nome || '',
+        ...((lead.extra_data as Record<string, unknown>) || {}),
+      }));
+
       // Test mode limits
       const actualSendLimit = isTestMode ? 10 : (formData.send_limit ? parseInt(formData.send_limit) : null);
+      const contactsToSend = actualSendLimit ? contacts.slice(0, actualSendLimit) : contacts;
 
       // Create campaign
       const { data: campaign, error: campaignError } = await supabase
@@ -151,46 +182,26 @@ export function CampaignForm({ lists, templates, onMessageChange, onCampaignCrea
           send_now: formData.send_now,
           scheduled_at: formData.scheduled_at || null,
           send_limit: actualSendLimit,
-          contacts_total: selectedList?.contact_count || 0,
+          contacts_total: contactsToSend.length,
           is_test_mode: isTestMode,
+          send_interval_minutes: Math.ceil(sendingConfig.send_interval_seconds / 60),
         })
         .select('*, list:lists(*), template:templates(*)')
         .single();
 
       if (campaignError) throw campaignError;
 
-      // Send to n8n webhook
-      const { data: webhookData, error: webhookError } = await supabase.functions.invoke('send-campaign', {
-        body: {
-          campaignId: campaign.id,
-          webhookUrl: settings.n8n_webhook_url,
-          sheetId: selectedList?.sheet_id,
-          sheetTabId: selectedList?.sheet_tab_id,
-          message: formData.message,
-          sendNow: formData.send_now,
-          scheduledAt: formData.scheduled_at || null,
-          sendLimit: actualSendLimit,
-          isTestMode: isTestMode,
-          testContactPhone: isTestMode ? defaultTestContact?.phone : null,
-        },
-      });
+      // Initialize queue dispatcher with contacts
+      const success = await queueDispatcher.initializeQueue(
+        campaign.id,
+        contactsToSend,
+        sendingConfig.send_interval_seconds,
+        true, // skipDuplicates
+        formData.send_now ? null : formData.scheduled_at
+      );
 
-      if (webhookError) {
-        // Update campaign status to error
-        await supabase
-          .from('campaigns')
-          .update({ status: 'error', error_message: webhookError.message })
-          .eq('id', campaign.id);
-        
-        throw webhookError;
-      }
-
-      // Update campaign with execution ID if returned
-      if (webhookData?.executionId) {
-        await supabase
-          .from('campaigns')
-          .update({ execution_id: webhookData.executionId })
-          .eq('id', campaign.id);
+      if (!success) {
+        throw new Error('Falha ao inicializar fila de envio');
       }
 
       toast({ title: 'Campanha iniciada com sucesso!' });

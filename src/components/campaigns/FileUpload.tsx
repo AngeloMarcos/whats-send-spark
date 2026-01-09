@@ -480,28 +480,27 @@ export function FileUpload({ onCampaignCreated }: FileUploadProps) {
         if (listError) throw listError;
         listId = newList.id;
 
-        const contactsToInsert = normalizedContacts.map((contact) => ({
+        const leadsToInsert = normalizedContacts.map((contact) => ({
           user_id: user.id,
           list_id: newList.id,
-          name: contact.name || null,
-          phone: String(contact.phone),
-          email: null,
+          telefones: String(contact.phone),
+          nome: contact.name || null,
+          status: 'pending',
           extra_data: contact,
-          is_valid: true,
         }));
 
         const chunkSize = 100;
-        for (let i = 0; i < contactsToInsert.length; i += chunkSize) {
-          const chunk = contactsToInsert.slice(i, i + chunkSize);
-          const { error: contactsError } = await supabase
-            .from('contacts')
+        for (let i = 0; i < leadsToInsert.length; i += chunkSize) {
+          const chunk = leadsToInsert.slice(i, i + chunkSize);
+          const { error: leadsError } = await supabase
+            .from('leads')
             .insert(chunk);
-          if (contactsError) throw contactsError;
+          if (leadsError) throw leadsError;
         }
 
         toast({
           title: 'Lista salva!',
-          description: `${contactsToInsert.length} contatos salvos na lista "${formData.listName}"`,
+          description: `${leadsToInsert.length} contatos salvos na lista "${formData.listName}"`,
         });
       }
 

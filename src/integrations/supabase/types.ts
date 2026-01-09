@@ -319,6 +319,50 @@ export type Database = {
           },
         ]
       }
+      leads: {
+        Row: {
+          created_at: string | null
+          extra_data: Json | null
+          id: string
+          list_id: string | null
+          nome: string | null
+          status: string | null
+          telefones: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          extra_data?: Json | null
+          id?: string
+          list_id?: string | null
+          nome?: string | null
+          status?: string | null
+          telefones: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          extra_data?: Json | null
+          id?: string
+          list_id?: string | null
+          nome?: string | null
+          status?: string | null
+          telefones?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "leads_list_id_fkey"
+            columns: ["list_id"]
+            isOneToOne: false
+            referencedRelation: "lists"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       lists: {
         Row: {
           contact_count: number | null
