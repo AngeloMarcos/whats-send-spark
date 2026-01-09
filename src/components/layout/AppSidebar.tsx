@@ -1,4 +1,4 @@
-import { MessageSquare, Send, List, FileText, Settings, LogOut, MapPin, AlertCircle } from 'lucide-react';
+import { MessageSquare, Send, List, FileText, Settings, LogOut, MapPin, AlertCircle, Search } from 'lucide-react';
 import { NavLink as RouterNavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import {
@@ -19,6 +19,7 @@ const menuItems = [
   { title: 'Campanhas', url: '/', icon: Send },
   { title: 'Listas', url: '/lists', icon: List },
   { title: 'Capturar Leads', url: '/capturar-leads', icon: MapPin },
+  { title: 'Pesquisa Avançada', url: '/pesquisa-avancada', icon: Search },
   { title: 'Templates', url: '/templates', icon: FileText },
   { title: 'Configurações', url: '/settings', icon: Settings },
   { title: 'Erros', url: '/erros', icon: AlertCircle },

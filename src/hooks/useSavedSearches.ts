@@ -65,7 +65,7 @@ export function useSavedSearches() {
           user_id: user.id,
           nome,
           descricao: descricao || null,
-          filtros: filtros as unknown as Record<string, unknown>,
+          filtros: JSON.parse(JSON.stringify(filtros)),
           total_resultados: totalResultados || 0,
         }])
         .select()
@@ -94,7 +94,7 @@ export function useSavedSearches() {
       const updateData: Record<string, unknown> = {};
       if (updates.nome !== undefined) updateData.nome = updates.nome;
       if (updates.descricao !== undefined) updateData.descricao = updates.descricao;
-      if (updates.filtros !== undefined) updateData.filtros = updates.filtros as unknown as Record<string, unknown>;
+      if (updates.filtros !== undefined) updateData.filtros = JSON.parse(JSON.stringify(updates.filtros));
       if (updates.total_resultados !== undefined) updateData.total_resultados = updates.total_resultados;
 
       const { error } = await supabase
