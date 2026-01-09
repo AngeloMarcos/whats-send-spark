@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { MapPin, Search, Phone, Clock, TrendingUp, Building, AlertTriangle, RefreshCw } from 'lucide-react';
+import { MapPin, Search, Phone, Clock, TrendingUp, Building, AlertTriangle, RefreshCw, FolderOpen } from 'lucide-react';
 import { useGooglePlaces, SearchMetrics } from '@/hooks/useGooglePlaces';
 import { SearchForm } from '@/components/leads/SearchForm';
 import { ResultsTable } from '@/components/leads/ResultsTable';
 import { LeadActions } from '@/components/leads/LeadActions';
 import { CNPJSearchForm } from '@/components/leads/CNPJSearchForm';
+import { ListsManager } from '@/components/leads/ListsManager';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent } from '@/components/ui/card';
@@ -101,13 +102,13 @@ export default function LeadCapture() {
           <div>
             <h1 className="text-2xl font-bold">🔍 Capturar Leads</h1>
             <p className="text-muted-foreground">
-              Encontre empresas via Google Maps ou CNPJ
+              Encontre empresas via Google Maps ou CNPJ e gere links WhatsApp
             </p>
           </div>
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-2 max-w-md">
+          <TabsList className="grid w-full grid-cols-3 max-w-lg">
             <TabsTrigger value="google-maps" className="flex items-center gap-2">
               <MapPin className="h-4 w-4" />
               Google Maps
@@ -116,9 +117,13 @@ export default function LeadCapture() {
               <Building className="h-4 w-4" />
               Busca CNPJ
             </TabsTrigger>
+            <TabsTrigger value="lists" className="flex items-center gap-2">
+              <FolderOpen className="h-4 w-4" />
+              Minhas Listas
+            </TabsTrigger>
           </TabsList>
 
-          {/* Use CSS visibility instead of unmounting to avoid React 19 + Radix portal issues */}
+          {/* Google Maps Tab */}
           <div className={`space-y-6 mt-6 ${activeTab === 'google-maps' ? 'block' : 'hidden'}`}>
             <SearchForm onSearch={handleSearch} isLoading={isLoading} />
 
@@ -141,6 +146,7 @@ export default function LeadCapture() {
             />
           </div>
 
+          {/* CNPJ Tab */}
           <div className={`mt-6 ${activeTab === 'cnpj' ? 'block' : 'hidden'}`}>
             <ErrorBoundary
               fallback={
@@ -164,6 +170,22 @@ export default function LeadCapture() {
               }
             >
               <CNPJSearchForm />
+            </ErrorBoundary>
+          </div>
+
+          {/* Lists Tab */}
+          <div className={`mt-6 ${activeTab === 'lists' ? 'block' : 'hidden'}`}>
+            <ErrorBoundary
+              fallback={
+                <Card className="p-6">
+                  <Alert variant="destructive">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertDescription>Erro ao carregar listas.</AlertDescription>
+                  </Alert>
+                </Card>
+              }
+            >
+              <ListsManager />
             </ErrorBoundary>
           </div>
         </Tabs>

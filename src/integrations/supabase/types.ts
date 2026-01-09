@@ -322,60 +322,114 @@ export type Database = {
       leads: {
         Row: {
           atividade: string | null
+          atividades_secundarias: Json | null
+          bairro: string | null
+          capital_social: string | null
+          cep: string | null
           cnpj: string | null
+          complemento: string | null
           created_at: string | null
+          data_abertura: string | null
           email: string | null
           endereco: string | null
           extra_data: Json | null
           id: string
           list_id: string | null
+          lista_captura_id: string | null
+          logradouro: string | null
+          municipio: string | null
           nome: string | null
+          nome_fantasia: string | null
+          numero: string | null
           owner_name: string | null
+          porte_empresa: string | null
           razao_social: string | null
+          regime_tributario: string | null
           situacao: string | null
+          socios: Json | null
           source: string | null
           status: string | null
           telefones: string
+          telefones_array: Json | null
+          tipo: string | null
+          uf: string | null
           updated_at: string | null
           user_id: string
+          whatsapp_links: Json | null
         }
         Insert: {
           atividade?: string | null
+          atividades_secundarias?: Json | null
+          bairro?: string | null
+          capital_social?: string | null
+          cep?: string | null
           cnpj?: string | null
+          complemento?: string | null
           created_at?: string | null
+          data_abertura?: string | null
           email?: string | null
           endereco?: string | null
           extra_data?: Json | null
           id?: string
           list_id?: string | null
+          lista_captura_id?: string | null
+          logradouro?: string | null
+          municipio?: string | null
           nome?: string | null
+          nome_fantasia?: string | null
+          numero?: string | null
           owner_name?: string | null
+          porte_empresa?: string | null
           razao_social?: string | null
+          regime_tributario?: string | null
           situacao?: string | null
+          socios?: Json | null
           source?: string | null
           status?: string | null
           telefones: string
+          telefones_array?: Json | null
+          tipo?: string | null
+          uf?: string | null
           updated_at?: string | null
           user_id: string
+          whatsapp_links?: Json | null
         }
         Update: {
           atividade?: string | null
+          atividades_secundarias?: Json | null
+          bairro?: string | null
+          capital_social?: string | null
+          cep?: string | null
           cnpj?: string | null
+          complemento?: string | null
           created_at?: string | null
+          data_abertura?: string | null
           email?: string | null
           endereco?: string | null
           extra_data?: Json | null
           id?: string
           list_id?: string | null
+          lista_captura_id?: string | null
+          logradouro?: string | null
+          municipio?: string | null
           nome?: string | null
+          nome_fantasia?: string | null
+          numero?: string | null
           owner_name?: string | null
+          porte_empresa?: string | null
           razao_social?: string | null
+          regime_tributario?: string | null
           situacao?: string | null
+          socios?: Json | null
           source?: string | null
           status?: string | null
           telefones?: string
+          telefones_array?: Json | null
+          tipo?: string | null
+          uf?: string | null
           updated_at?: string | null
           user_id?: string
+          whatsapp_links?: Json | null
         }
         Relationships: [
           {
@@ -385,7 +439,47 @@ export type Database = {
             referencedRelation: "lists"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "leads_lista_captura_id_fkey"
+            columns: ["lista_captura_id"]
+            isOneToOne: false
+            referencedRelation: "listas_captura"
+            referencedColumns: ["id"]
+          },
         ]
+      }
+      listas_captura: {
+        Row: {
+          created_at: string | null
+          descricao: string | null
+          id: string
+          nome: string
+          total_leads: number | null
+          total_telefones: number | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          descricao?: string | null
+          id?: string
+          nome: string
+          total_leads?: number | null
+          total_telefones?: number | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          descricao?: string | null
+          id?: string
+          nome?: string
+          total_leads?: number | null
+          total_telefones?: number | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
       }
       lists: {
         Row: {

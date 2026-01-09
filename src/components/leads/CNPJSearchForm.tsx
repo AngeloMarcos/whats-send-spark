@@ -1,15 +1,21 @@
 import { useState } from 'react';
-import { Building, Search, RefreshCw, Save, CheckCircle, User, Phone, Mail, MapPin, Briefcase, AlertCircle } from 'lucide-react';
+import { Building, Search, RefreshCw, Save, CheckCircle, User, Phone, Mail, MapPin, Briefcase, AlertCircle, FileText, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { useReceitaWS, formatCNPJ, cleanCNPJ, LeadFromCNPJ } from '@/hooks/useReceitaWS';
+import { Progress } from '@/components/ui/progress';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useReceitaWS, formatCNPJ, cleanCNPJ } from '@/hooks/useReceitaWS';
+import { useBulkCNPJSearch } from '@/hooks/useBulkCNPJSearch';
+import { CaptureResultsTable } from './CaptureResultsTable';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
+import type { LeadCapturado } from '@/types/leadCapture';
 
 interface CNPJSearchFormProps {
   onLeadSaved?: () => void;
@@ -17,19 +23,25 @@ interface CNPJSearchFormProps {
 
 export function CNPJSearchForm({ onLeadSaved }: CNPJSearchFormProps) {
   const { user } = useAuth();
+  const [searchMode, setSearchMode] = useState<'single' | 'bulk'>('single');
   const [cnpjInput, setCnpjInput] = useState('');
+  const [bulkInput, setBulkInput] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  
+  // Single search
   const { isLoading, error, leadData, rawResponse, searchCNPJ, clearData, updateLeadField } = useReceitaWS();
+  
+  // Bulk search
+  const { isSearching, progress, results, searchBulk, cancelSearch, clearResults } = useBulkCNPJSearch();
 
   const handleCNPJChange = (value: string) => {
-    // Auto-format as user types
     const cleaned = cleanCNPJ(value);
     if (cleaned.length <= 14) {
       setCnpjInput(formatCNPJ(cleaned));
     }
   };
 
-  const handleSearch = async () => {
+  const handleSingleSearch = async () => {
     if (!cnpjInput.trim()) {
       toast.error('Digite um CNPJ');
       return;
@@ -37,15 +49,33 @@ export function CNPJSearchForm({ onLeadSaved }: CNPJSearchFormProps) {
     await searchCNPJ(cnpjInput);
   };
 
+  const handleBulkSearch = async () => {
+    const cnpjs = bulkInput
+      .split(/[\n,;]/)
+      .map(c => c.trim())
+      .filter(c => c.length > 0);
+    
+    if (cnpjs.length === 0) {
+      toast.error('Cole CNPJs para buscar');
+      return;
+    }
+    
+    await searchBulk(cnpjs);
+  };
+
   const handleReload = () => {
     clearData();
     setCnpjInput('');
   };
 
+  const handleClearBulk = () => {
+    setBulkInput('');
+    clearResults();
+  };
+
   const handleSaveLead = async () => {
     if (!user || !leadData) return;
 
-    // Validation before insert
     const cleanedCnpj = cleanCNPJ(leadData.cnpj);
     if (!cleanedCnpj || cleanedCnpj.length !== 14) {
       toast.error('CNPJ inválido');
@@ -60,7 +90,6 @@ export function CNPJSearchForm({ onLeadSaved }: CNPJSearchFormProps) {
 
     setIsSaving(true);
     try {
-      // Prepare data with safe fallbacks
       const insertData = {
         user_id: user.id,
         cnpj: cleanedCnpj,
@@ -81,7 +110,6 @@ export function CNPJSearchForm({ onLeadSaved }: CNPJSearchFormProps) {
       };
 
       const { error: insertError } = await supabase.from('leads').insert([insertData]);
-
       if (insertError) throw insertError;
 
       toast.success('Lead salvo com sucesso!');
@@ -89,16 +117,10 @@ export function CNPJSearchForm({ onLeadSaved }: CNPJSearchFormProps) {
       onLeadSaved?.();
     } catch (err) {
       console.error('Error saving lead:', err);
-      
-      // User-friendly error messages based on error type
       if (err instanceof Error) {
         const msg = err.message.toLowerCase();
         if (msg.includes('duplicate') || msg.includes('unique')) {
           toast.error('Este CNPJ já está cadastrado');
-        } else if (msg.includes('violates') || msg.includes('constraint')) {
-          toast.error('Dados inválidos. Verifique os campos obrigatórios.');
-        } else if (msg.includes('network') || msg.includes('fetch')) {
-          toast.error('Erro de conexão. Verifique sua internet.');
         } else {
           toast.error('Erro ao salvar lead. Tente novamente.');
         }
@@ -110,63 +132,171 @@ export function CNPJSearchForm({ onLeadSaved }: CNPJSearchFormProps) {
     }
   };
 
-  const getSituacaoBadgeVariant = (situacao: string): 'default' | 'secondary' | 'destructive' | 'outline' => {
-    switch (situacao?.toUpperCase()) {
-      case 'ATIVA':
-        return 'default';
-      case 'SUSPENSA':
-        return 'secondary';
-      case 'INAPTA':
-      case 'BAIXADA':
-        return 'destructive';
-      default:
-        return 'outline';
+  const handleSaveBulkLeads = async (leads: LeadCapturado[]) => {
+    if (!user || leads.length === 0) return;
+
+    setIsSaving(true);
+    try {
+      const insertData = leads.map(lead => ({
+        user_id: user.id,
+        cnpj: cleanCNPJ(lead.cnpj),
+        telefones: lead.telefones_raw || 'Não informado',
+        telefones_array: lead.telefones,
+        whatsapp_links: lead.telefones.map(p => p.whatsappApiLink).filter(Boolean),
+        email: lead.email || null,
+        nome: lead.razao_social,
+        razao_social: lead.razao_social,
+        nome_fantasia: lead.nome_fantasia || null,
+        owner_name: lead.owner_name || null,
+        situacao: lead.situacao || 'DESCONHECIDA',
+        atividade: lead.atividade_principal || null,
+        endereco: lead.endereco || null,
+        cep: lead.cep || null,
+        logradouro: lead.logradouro || null,
+        numero: lead.numero || null,
+        bairro: lead.bairro || null,
+        municipio: lead.municipio || null,
+        uf: lead.uf || null,
+        porte_empresa: lead.porte_empresa || null,
+        data_abertura: lead.data_abertura || null,
+        socios: lead.socios || [],
+        status: 'pending',
+        source: lead.source,
+      }));
+
+      const { error: insertError } = await supabase.from('leads').insert(insertData);
+      if (insertError) throw insertError;
+
+      toast.success(`${leads.length} leads salvos com sucesso!`);
+      onLeadSaved?.();
+    } catch (err) {
+      console.error('Error saving leads:', err);
+      toast.error('Erro ao salvar leads');
+    } finally {
+      setIsSaving(false);
     }
   };
 
+  const getSituacaoBadgeVariant = (situacao: string): 'default' | 'secondary' | 'destructive' | 'outline' => {
+    switch (situacao?.toUpperCase()) {
+      case 'ATIVA': return 'default';
+      case 'SUSPENSA': return 'secondary';
+      case 'INAPTA':
+      case 'BAIXADA': return 'destructive';
+      default: return 'outline';
+    }
+  };
+
+  const bulkCnpjCount = bulkInput
+    .split(/[\n,;]/)
+    .map(c => c.trim())
+    .filter(c => cleanCNPJ(c).length === 14).length;
+
   return (
     <div className="space-y-6">
-      {/* CNPJ Search Section */}
+      {/* Search Mode Toggle */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Building className="h-5 w-5" />
-            Buscar Empresa por CNPJ
+            Buscar Empresas por CNPJ
           </CardTitle>
+          <CardDescription>
+            Busque um CNPJ individual ou cole uma lista para busca em lote
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex gap-2">
-            <div className="flex-1">
-              <Label htmlFor="cnpj">CNPJ</Label>
-              <Input
-                id="cnpj"
-                placeholder="00.000.000/0000-00"
-                value={cnpjInput}
-                onChange={(e) => handleCNPJChange(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                disabled={isLoading}
-                maxLength={18}
-              />
-            </div>
-            <div className="flex items-end gap-2">
-              <Button
-                onClick={handleSearch}
-                disabled={isLoading || !cnpjInput.trim()}
-              >
-                {isLoading ? (
-                  <RefreshCw className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Search className="h-4 w-4" />
-                )}
-                <span className="ml-2">Buscar</span>
-              </Button>
-              {leadData && (
-                <Button variant="outline" size="icon" onClick={handleReload}>
-                  <RefreshCw className="h-4 w-4" />
+          <Tabs value={searchMode} onValueChange={(v) => setSearchMode(v as 'single' | 'bulk')}>
+            <TabsList className="grid w-full grid-cols-2 max-w-xs">
+              <TabsTrigger value="single" className="gap-2">
+                <Search className="h-4 w-4" />
+                Individual
+              </TabsTrigger>
+              <TabsTrigger value="bulk" className="gap-2">
+                <FileText className="h-4 w-4" />
+                Em Lote
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+
+          {searchMode === 'single' ? (
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <Label htmlFor="cnpj">CNPJ</Label>
+                <Input
+                  id="cnpj"
+                  placeholder="00.000.000/0000-00"
+                  value={cnpjInput}
+                  onChange={(e) => handleCNPJChange(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSingleSearch()}
+                  disabled={isLoading}
+                  maxLength={18}
+                />
+              </div>
+              <div className="flex items-end gap-2">
+                <Button onClick={handleSingleSearch} disabled={isLoading || !cnpjInput.trim()}>
+                  {isLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                  <span className="ml-2">Buscar</span>
                 </Button>
-              )}
+                {leadData && (
+                  <Button variant="outline" size="icon" onClick={handleReload}>
+                    <RefreshCw className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="space-y-3">
+              <div>
+                <Label htmlFor="bulk-cnpj">Cole os CNPJs (um por linha ou separados por vírgula)</Label>
+                <Textarea
+                  id="bulk-cnpj"
+                  placeholder="00.000.000/0000-00&#10;11.111.111/0001-11&#10;22.222.222/0002-22"
+                  value={bulkInput}
+                  onChange={(e) => setBulkInput(e.target.value)}
+                  disabled={isSearching}
+                  rows={5}
+                  className="font-mono text-sm"
+                />
+                {bulkInput && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {bulkCnpjCount} CNPJ{bulkCnpjCount !== 1 ? 's' : ''} válido{bulkCnpjCount !== 1 ? 's' : ''} detectado{bulkCnpjCount !== 1 ? 's' : ''}
+                  </p>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <Button onClick={handleBulkSearch} disabled={isSearching || bulkCnpjCount === 0}>
+                  {isSearching ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                  <span className="ml-2">{isSearching ? 'Buscando...' : 'Buscar Todos'}</span>
+                </Button>
+                {isSearching && (
+                  <Button variant="outline" onClick={cancelSearch}>
+                    <X className="h-4 w-4 mr-2" />
+                    Cancelar
+                  </Button>
+                )}
+                {results.length > 0 && !isSearching && (
+                  <Button variant="outline" onClick={handleClearBulk}>
+                    Limpar
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Progress Bar for Bulk Search */}
+          {isSearching && (
+            <div className="space-y-2">
+              <div className="flex justify-between text-sm">
+                <span>Buscando: {progress.currentCnpj}</span>
+                <span>{progress.current}/{progress.total}</span>
+              </div>
+              <Progress value={(progress.current / progress.total) * 100} />
+              <p className="text-xs text-muted-foreground">
+                {progress.found} encontrados • {progress.errors} erros
+              </p>
+            </div>
+          )}
 
           {error && (
             <Alert variant="destructive">
@@ -175,19 +305,17 @@ export function CNPJSearchForm({ onLeadSaved }: CNPJSearchFormProps) {
             </Alert>
           )}
 
-          {leadData && (
-            <div className="flex items-center gap-2">
-              <Badge variant="default" className="bg-green-500/10 text-green-500 border-green-500/20">
-                <CheckCircle className="h-3 w-3 mr-1" />
-                Dados preenchidos via ReceitaWS
-              </Badge>
-            </div>
+          {leadData && searchMode === 'single' && (
+            <Badge variant="default" className="bg-green-500/10 text-green-500 border-green-500/20">
+              <CheckCircle className="h-3 w-3 mr-1" />
+              Dados preenchidos via ReceitaWS
+            </Badge>
           )}
         </CardContent>
       </Card>
 
-      {/* Lead Data Form */}
-      {leadData && (
+      {/* Single Lead Data Form */}
+      {leadData && searchMode === 'single' && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
@@ -198,7 +326,6 @@ export function CNPJSearchForm({ onLeadSaved }: CNPJSearchFormProps) {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {/* Owner Name - Highlighted */}
             {leadData.owner_name && (
               <div className="p-4 bg-primary/5 border border-primary/20 rounded-lg">
                 <div className="flex items-center gap-2 mb-1">
@@ -210,7 +337,6 @@ export function CNPJSearchForm({ onLeadSaved }: CNPJSearchFormProps) {
             )}
 
             <div className="grid gap-4 md:grid-cols-2">
-              {/* Razão Social */}
               <div className="md:col-span-2">
                 <Label htmlFor="razao_social">Razão Social</Label>
                 <Input
@@ -220,7 +346,6 @@ export function CNPJSearchForm({ onLeadSaved }: CNPJSearchFormProps) {
                 />
               </div>
 
-              {/* Phone */}
               <div>
                 <Label htmlFor="telefones" className="flex items-center gap-1">
                   <Phone className="h-3 w-3" />
@@ -233,7 +358,6 @@ export function CNPJSearchForm({ onLeadSaved }: CNPJSearchFormProps) {
                 />
               </div>
 
-              {/* Email */}
               <div>
                 <Label htmlFor="email" className="flex items-center gap-1">
                   <Mail className="h-3 w-3" />
@@ -247,21 +371,14 @@ export function CNPJSearchForm({ onLeadSaved }: CNPJSearchFormProps) {
                 />
               </div>
 
-              {/* Activity */}
               <div className="md:col-span-2">
                 <Label htmlFor="atividade" className="flex items-center gap-1">
                   <Briefcase className="h-3 w-3" />
                   Atividade Principal
                 </Label>
-                <Input
-                  id="atividade"
-                  value={leadData.atividade}
-                  readOnly
-                  className="bg-muted"
-                />
+                <Input id="atividade" value={leadData.atividade} readOnly className="bg-muted" />
               </div>
 
-              {/* Address */}
               <div className="md:col-span-2">
                 <Label htmlFor="endereco" className="flex items-center gap-1">
                   <MapPin className="h-3 w-3" />
@@ -277,16 +394,21 @@ export function CNPJSearchForm({ onLeadSaved }: CNPJSearchFormProps) {
 
             <div className="flex justify-end pt-4">
               <Button onClick={handleSaveLead} disabled={isSaving}>
-                {isSaving ? (
-                  <RefreshCw className="h-4 w-4 animate-spin mr-2" />
-                ) : (
-                  <Save className="h-4 w-4 mr-2" />
-                )}
+                {isSaving ? <RefreshCw className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
                 Salvar Lead
               </Button>
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {/* Bulk Results Table */}
+      {results.length > 0 && searchMode === 'bulk' && (
+        <CaptureResultsTable 
+          leads={results} 
+          onAddToList={handleSaveBulkLeads}
+          loading={isSearching}
+        />
       )}
     </div>
   );
