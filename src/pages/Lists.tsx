@@ -154,15 +154,16 @@ export default function Lists() {
   const fetchContacts = async (listId: string) => {
     setIsLoadingContacts(true);
     try {
+      // Fetch leads from leads table instead of contacts
       const { data, error } = await supabase
-        .from('contacts')
+        .from('leads')
         .select('*')
         .eq('list_id', listId)
         .order('created_at', { ascending: true })
-        .limit(1000); // Limit to prevent performance issues
+        .limit(1000);
 
       if (error) {
-        console.error('Error fetching contacts:', error);
+        console.error('Error fetching leads:', error);
         toast({ 
           title: 'Erro ao carregar contatos', 
           description: error.message,
@@ -170,14 +171,18 @@ export default function Lists() {
         });
         setContacts([]);
       } else {
-        // Normalize contact data to prevent null-related crashes
-        const normalizedContacts = (data ?? []).map(c => ({
-          ...c,
-          phone: String(c.phone ?? ''),
-          name: c.name ? String(c.name) : null,
-          extra_data: (c.extra_data && typeof c.extra_data === 'object') ? c.extra_data : {},
-          is_valid: c.is_valid !== false,
-          created_at: c.created_at ?? new Date().toISOString(),
+        // Normalize lead data to Contact format for compatibility
+        const normalizedContacts = (data ?? []).map(lead => ({
+          id: lead.id,
+          user_id: lead.user_id,
+          list_id: lead.list_id || '',
+          phone: String(lead.telefones ?? ''),
+          name: lead.nome ? String(lead.nome) : null,
+          email: null,
+          extra_data: (lead.extra_data && typeof lead.extra_data === 'object') ? lead.extra_data as Record<string, unknown> : {},
+          is_valid: lead.status !== 'invalid',
+          created_at: lead.created_at ?? new Date().toISOString(),
+          updated_at: lead.updated_at ?? new Date().toISOString(),
         })) as Contact[];
         setContacts(normalizedContacts);
       }
@@ -196,7 +201,8 @@ export default function Lists() {
   };
 
   const handleDeleteContact = async (contactId: string) => {
-    const { error } = await supabase.from('contacts').delete().eq('id', contactId);
+    // Delete from leads table instead of contacts
+    const { error } = await supabase.from('leads').delete().eq('id', contactId);
     if (error) {
       toast({ title: 'Erro ao excluir contato', variant: 'destructive' });
     } else {
@@ -263,7 +269,7 @@ export default function Lists() {
 
         if (listError) throw listError;
 
-        // 2. Insert contacts in batches
+        // 2. Insert leads in batches (using leads table instead of contacts)
         const BATCH_SIZE = 100;
         let insertedCount = 0;
 
@@ -271,18 +277,18 @@ export default function Lists() {
           const batch = uploadedContacts.slice(i, i + BATCH_SIZE).map(c => ({
             user_id: user.id,
             list_id: newList.id,
-            phone: String(c.phone ?? ''),
-            name: c.name ? String(c.name) : null,
+            telefones: String(c.phone ?? ''),
+            nome: c.name ? String(c.name) : null,
             extra_data: c.extra_data ? safeJsonClone(c.extra_data) : null,
-            is_valid: c.is_valid !== false,
+            status: c.is_valid !== false ? 'pending' : 'invalid',
           }));
 
-          const { error: contactsError } = await supabase
-            .from('contacts')
+          const { error: leadsError } = await supabase
+            .from('leads')
             .insert(batch);
 
-          if (contactsError) {
-            console.error('Batch insert error:', contactsError);
+          if (leadsError) {
+            console.error('Batch insert error:', leadsError);
             // Continue with other batches
           } else {
             insertedCount += batch.length;
@@ -311,8 +317,8 @@ export default function Lists() {
   };
 
   const handleDelete = async (id: string) => {
-    // First delete all contacts in the list
-    await supabase.from('contacts').delete().eq('list_id', id);
+    // First delete all leads in the list
+    await supabase.from('leads').delete().eq('list_id', id);
     
     const { error } = await supabase.from('lists').delete().eq('id', id);
     if (error) {

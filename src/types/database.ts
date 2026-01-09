@@ -106,3 +106,15 @@ export interface TestContact {
   is_default: boolean;
   created_at: string;
 }
+
+export interface Lead {
+  id: string;
+  user_id: string;
+  list_id: string | null;
+  telefones: string;
+  status: string;
+  nome: string | null;
+  extra_data: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}

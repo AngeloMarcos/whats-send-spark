@@ -23,7 +23,7 @@ export interface DispatcherState {
   isRunning: boolean;
   isPaused: boolean;
   nextSendTime: number | null;
-  intervalMinutes: number;
+  intervalSeconds: number;
   recentlySent: QueueItem[];
   recentErrors: { contact: QueueItem; error: string }[];
   recentSkipped: QueueItem[];
@@ -41,7 +41,7 @@ const INITIAL_STATE: DispatcherState = {
   isRunning: false,
   isPaused: false,
   nextSendTime: null,
-  intervalMinutes: 5,
+  intervalSeconds: 30,
   recentlySent: [],
   recentErrors: [],
   recentSkipped: [],
@@ -73,7 +73,7 @@ export const useQueueDispatcher = () => {
   const initializeQueue = useCallback(async (
     campaignId: string,
     contacts: Array<{ name?: string; phone: string; [key: string]: unknown }>,
-    intervalMinutes: number,
+    intervalSeconds: number,
     skipDuplicates: boolean = true,
     scheduledAt?: string | null
   ) => {
@@ -150,7 +150,7 @@ export const useQueueDispatcher = () => {
       await supabase
         .from('campaigns')
         .update({ 
-          send_interval_minutes: intervalMinutes,
+          send_interval_minutes: Math.ceil(intervalSeconds / 60),
           status: initialStatus,
           contacts_total: contactsToSend.length,
           scheduled_at: scheduledAt || null,
@@ -164,7 +164,7 @@ export const useQueueDispatcher = () => {
           campaignId,
           totalContacts: contactsToSend.length,
           excludedCount,
-          intervalMinutes,
+          intervalSeconds,
           isRunning: false,
           queue: queueWithRealIds,
         });
@@ -181,7 +181,7 @@ export const useQueueDispatcher = () => {
         campaignId,
         totalContacts: contactsToSend.length,
         excludedCount,
-        intervalMinutes,
+        intervalSeconds,
         isRunning: true,
         queue: queueWithRealIds,
       });
@@ -263,7 +263,7 @@ export const useQueueDispatcher = () => {
           queue: prev.queue.slice(1),
           recentSkipped: [skippedContact, ...prev.recentSkipped].slice(0, 5),
           nextSendTime: data.remainingCount > 0 
-            ? Date.now() + prev.intervalMinutes * 60 * 1000 
+            ? Date.now() + prev.intervalSeconds * 1000 
             : null,
         }));
 
@@ -284,7 +284,7 @@ export const useQueueDispatcher = () => {
           queue: prev.queue.slice(1),
           recentlySent: [sentContact, ...prev.recentlySent].slice(0, 5),
           nextSendTime: data.remainingCount > 0 
-            ? Date.now() + prev.intervalMinutes * 60 * 1000 
+            ? Date.now() + prev.intervalSeconds * 1000 
             : null,
         }));
 
@@ -305,7 +305,7 @@ export const useQueueDispatcher = () => {
           queue: prev.queue.slice(1),
           recentErrors: [{ contact: errorContact, error: data.error.message }, ...prev.recentErrors].slice(0, 5),
           nextSendTime: data.remainingCount > 0 
-            ? Date.now() + prev.intervalMinutes * 60 * 1000 
+            ? Date.now() + prev.intervalSeconds * 1000 
             : null,
         }));
       }
@@ -318,7 +318,7 @@ export const useQueueDispatcher = () => {
         variant: 'destructive',
       });
     }
-  }, [state.campaignId, state.isPaused, state.totalContacts, state.intervalMinutes, toast]);
+  }, [state.campaignId, state.isPaused, state.totalContacts, state.intervalSeconds, toast]);
 
   // Timer effect
   useEffect(() => {
