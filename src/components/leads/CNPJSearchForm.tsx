@@ -141,7 +141,7 @@ export function CNPJSearchForm({ onLeadSaved }: CNPJSearchFormProps) {
         user_id: user.id,
         cnpj: cleanCNPJ(lead.cnpj),
         telefones: lead.telefones_raw || 'Não informado',
-        telefones_array: lead.telefones,
+        telefones_array: JSON.parse(JSON.stringify(lead.telefones)),
         whatsapp_links: lead.telefones.map(p => p.whatsappApiLink).filter(Boolean),
         email: lead.email || null,
         nome: lead.razao_social,
@@ -159,7 +159,7 @@ export function CNPJSearchForm({ onLeadSaved }: CNPJSearchFormProps) {
         uf: lead.uf || null,
         porte_empresa: lead.porte_empresa || null,
         data_abertura: lead.data_abertura || null,
-        socios: lead.socios || [],
+        socios: JSON.parse(JSON.stringify(lead.socios || [])),
         status: 'pending',
         source: lead.source,
       }));
