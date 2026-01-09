@@ -54,7 +54,13 @@ serve(async (req) => {
     });
 
     // Verify user owns this campaign and get list_id
-    let contacts: Array<Record<string, unknown>> = [];
+    interface ContactData {
+      phone: string;
+      name: string;
+      email: string;
+      [key: string]: unknown;
+    }
+    let contacts: ContactData[] = [];
 
     if (campaignId) {
       console.error("🔍 Fetching campaign data for campaignId:", campaignId);
