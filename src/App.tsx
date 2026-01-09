@@ -12,6 +12,7 @@ import Settings from "./pages/Settings";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
 import LeadCapture from "./pages/LeadCapture";
+import AdvancedSearch from "./pages/AdvancedSearch";
 import Errors from "./pages/Errors";
 
 const queryClient = new QueryClient();
@@ -31,6 +32,7 @@ const App = () => (
             <Route path="/lists" element={<Lists />} />
             <Route path="/templates" element={<Templates />} />
             <Route path="/capturar-leads" element={<LeadCapture />} />
+            <Route path="/pesquisa-avancada" element={<AdvancedSearch />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/erros" element={<Errors />} />
             <Route path="/auth" element={<Auth />} />
