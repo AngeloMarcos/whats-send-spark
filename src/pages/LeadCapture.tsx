@@ -75,6 +75,7 @@ function StatsCards({ metrics }: { metrics: SearchMetrics }) {
 export default function LeadCapture() {
   const { leads, isLoading, error, metrics, searchPlaces } = useGooglePlaces();
   const [selectedLeads, setSelectedLeads] = useState<Set<string>>(new Set());
+  const [activeTab, setActiveTab] = useState('google-maps');
 
   const handleSearch = async (params: {
     query: string;
@@ -103,7 +104,7 @@ export default function LeadCapture() {
           </div>
         </div>
 
-        <Tabs defaultValue="google-maps" className="w-full">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="grid w-full grid-cols-2 max-w-md">
             <TabsTrigger value="google-maps" className="flex items-center gap-2">
               <MapPin className="h-4 w-4" />
@@ -115,7 +116,8 @@ export default function LeadCapture() {
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="google-maps" className="space-y-6 mt-6">
+          {/* Use CSS visibility instead of unmounting to avoid React 19 + Radix portal issues */}
+          <div className={`space-y-6 mt-6 ${activeTab === 'google-maps' ? 'block' : 'hidden'}`}>
             <SearchForm onSearch={handleSearch} isLoading={isLoading} />
 
             {error && (
@@ -135,11 +137,11 @@ export default function LeadCapture() {
               selectedLeads={selectedLeads}
               onSelectionChange={setSelectedLeads}
             />
-          </TabsContent>
+          </div>
 
-          <TabsContent value="cnpj" className="mt-6">
+          <div className={`mt-6 ${activeTab === 'cnpj' ? 'block' : 'hidden'}`}>
             <CNPJSearchForm />
-          </TabsContent>
+          </div>
         </Tabs>
       </div>
     </AppLayout>
