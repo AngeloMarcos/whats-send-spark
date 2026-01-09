@@ -321,33 +321,57 @@ export type Database = {
       }
       leads: {
         Row: {
+          atividade: string | null
+          cnpj: string | null
           created_at: string | null
+          email: string | null
+          endereco: string | null
           extra_data: Json | null
           id: string
           list_id: string | null
           nome: string | null
+          owner_name: string | null
+          razao_social: string | null
+          situacao: string | null
+          source: string | null
           status: string | null
           telefones: string
           updated_at: string | null
           user_id: string
         }
         Insert: {
+          atividade?: string | null
+          cnpj?: string | null
           created_at?: string | null
+          email?: string | null
+          endereco?: string | null
           extra_data?: Json | null
           id?: string
           list_id?: string | null
           nome?: string | null
+          owner_name?: string | null
+          razao_social?: string | null
+          situacao?: string | null
+          source?: string | null
           status?: string | null
           telefones: string
           updated_at?: string | null
           user_id: string
         }
         Update: {
+          atividade?: string | null
+          cnpj?: string | null
           created_at?: string | null
+          email?: string | null
+          endereco?: string | null
           extra_data?: Json | null
           id?: string
           list_id?: string | null
           nome?: string | null
+          owner_name?: string | null
+          razao_social?: string | null
+          situacao?: string | null
+          source?: string | null
           status?: string | null
           telefones?: string
           updated_at?: string | null
