@@ -45,26 +45,42 @@ export function CNPJSearchForm({ onLeadSaved }: CNPJSearchFormProps) {
   const handleSaveLead = async () => {
     if (!user || !leadData) return;
 
+    // Validation before insert
+    const cleanedCnpj = cleanCNPJ(leadData.cnpj);
+    if (!cleanedCnpj || cleanedCnpj.length !== 14) {
+      toast.error('CNPJ inválido');
+      return;
+    }
+
+    const razaoSocial = (leadData.razao_social || '').trim();
+    if (!razaoSocial) {
+      toast.error('Razão social é obrigatória');
+      return;
+    }
+
     setIsSaving(true);
     try {
-      const { error: insertError } = await supabase.from('leads').insert([{
+      // Prepare data with safe fallbacks
+      const insertData = {
         user_id: user.id,
-        cnpj: cleanCNPJ(leadData.cnpj),
-        telefones: leadData.telefones,
-        email: leadData.email,
-        nome: leadData.razao_social,
-        razao_social: leadData.razao_social,
-        owner_name: leadData.owner_name,
-        situacao: leadData.situacao,
-        atividade: leadData.atividade,
-        endereco: leadData.endereco,
+        cnpj: cleanedCnpj,
+        telefones: (leadData.telefones || '').trim() || 'Não informado',
+        email: (leadData.email || '').trim() || null,
+        nome: razaoSocial,
+        razao_social: razaoSocial,
+        owner_name: (leadData.owner_name || '').trim() || null,
+        situacao: (leadData.situacao || '').trim() || 'DESCONHECIDA',
+        atividade: (leadData.atividade || '').trim() || null,
+        endereco: (leadData.endereco || '').trim() || null,
         status: 'pending',
         source: 'receitaws',
-        extra_data: JSON.parse(JSON.stringify({
+        extra_data: {
           captured_at: new Date().toISOString(),
-          raw_response: rawResponse,
-        })),
-      }]);
+          raw_response: rawResponse || {},
+        },
+      };
+
+      const { error: insertError } = await supabase.from('leads').insert([insertData]);
 
       if (insertError) throw insertError;
 
@@ -73,7 +89,22 @@ export function CNPJSearchForm({ onLeadSaved }: CNPJSearchFormProps) {
       onLeadSaved?.();
     } catch (err) {
       console.error('Error saving lead:', err);
-      toast.error('Erro ao salvar lead');
+      
+      // User-friendly error messages based on error type
+      if (err instanceof Error) {
+        const msg = err.message.toLowerCase();
+        if (msg.includes('duplicate') || msg.includes('unique')) {
+          toast.error('Este CNPJ já está cadastrado');
+        } else if (msg.includes('violates') || msg.includes('constraint')) {
+          toast.error('Dados inválidos. Verifique os campos obrigatórios.');
+        } else if (msg.includes('network') || msg.includes('fetch')) {
+          toast.error('Erro de conexão. Verifique sua internet.');
+        } else {
+          toast.error('Erro ao salvar lead. Tente novamente.');
+        }
+      } else {
+        toast.error('Erro desconhecido ao salvar');
+      }
     } finally {
       setIsSaving(false);
     }

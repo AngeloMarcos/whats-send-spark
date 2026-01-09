@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
 
 export interface ReceitaWSResponse {
@@ -109,14 +109,51 @@ function saveToCache(cnpj: string, data: ReceitaWSResponse): void {
   }
 }
 
-async function fetchWithRetry(url: string, retries = 2): Promise<Response> {
+async function fetchWithRetry(
+  url: string, 
+  retries = 2,
+  signal?: AbortSignal
+): Promise<Response> {
+  const TIMEOUT_MS = 8000; // 8 second timeout
+  
   for (let attempt = 0; attempt <= retries; attempt++) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    
+    // Combine external signal with timeout
+    const combinedSignal = signal 
+      ? { signal: controller.signal }
+      : { signal: controller.signal };
+    
+    // If external signal aborts, also abort our controller
+    if (signal) {
+      signal.addEventListener('abort', () => controller.abort(), { once: true });
+    }
+    
     try {
-      const response = await fetch(url);
+      const response = await fetch(url, combinedSignal);
+      clearTimeout(timeoutId);
       return response;
     } catch (error) {
-      if (attempt === retries) throw error;
-      await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+      clearTimeout(timeoutId);
+      
+      // Check if aborted externally (user navigated away)
+      if (signal?.aborted) {
+        throw new Error('Requisição cancelada');
+      }
+      
+      // Check if it was a timeout
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.warn(`Timeout na tentativa ${attempt + 1}/${retries + 1}`);
+        if (attempt === retries) {
+          throw new Error('Tempo limite excedido. Tente novamente.');
+        }
+      } else if (attempt === retries) {
+        throw error;
+      }
+      
+      // Exponential backoff: 1s, 2s, 4s
+      await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt)));
     }
   }
   throw new Error('Falha após múltiplas tentativas');
@@ -128,14 +165,31 @@ export function useReceitaWS() {
   const [leadData, setLeadData] = useState<LeadFromCNPJ | null>(null);
   const [rawResponse, setRawResponse] = useState<ReceitaWSResponse | null>(null);
   const rateLimitRef = useRef<Record<string, RateLimitEntry>>({});
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const isMountedRef = useRef(true);
+
+  // Cleanup on unmount
+  React.useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      // Cancel any pending request
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+    };
+  }, []);
 
   const searchCNPJ = useCallback(async (cnpj: string): Promise<LeadFromCNPJ | null> => {
     const cleaned = cleanCNPJ(cnpj);
     
     // Validate CNPJ
     if (!validateCNPJ(cleaned)) {
-      setError('CNPJ inválido');
-      setLeadData(null);
+      if (isMountedRef.current) {
+        setError('CNPJ inválido');
+        setLeadData(null);
+      }
       return null;
     }
 
@@ -144,41 +198,63 @@ export function useReceitaWS() {
     if (lastRequest && Date.now() - lastRequest.timestamp < RATE_LIMIT_MS) {
       const waitTime = Math.ceil((RATE_LIMIT_MS - (Date.now() - lastRequest.timestamp)) / 1000);
       toast.info(`Aguarde ${waitTime}s para buscar este CNPJ novamente`);
-      return leadData;
+      return null; // Return null instead of stale data to prevent issues
     }
 
     // Check cache first
     const cached = getFromCache(cleaned);
     if (cached) {
       const lead = transformResponse(cached);
-      setLeadData(lead);
-      setRawResponse(cached);
-      setError(null);
+      if (isMountedRef.current) {
+        setLeadData(lead);
+        setRawResponse(cached);
+        setError(null);
+      }
       toast.success('Dados recuperados do cache');
       return lead;
     }
 
-    setIsLoading(true);
-    setError(null);
+    // Cancel any pending request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    
+    // Create new abort controller for this request
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    if (isMountedRef.current) {
+      setIsLoading(true);
+      setError(null);
+    }
 
     try {
       // Update rate limit
       rateLimitRef.current[cleaned] = { timestamp: Date.now() };
 
       const response = await fetchWithRetry(
-        `https://www.receitaws.com.br/v1/cnpj/${cleaned}`
+        `https://www.receitaws.com.br/v1/cnpj/${cleaned}`,
+        2,
+        controller.signal
       );
 
+      // Check if component is still mounted and request wasn't cancelled
+      if (!isMountedRef.current || controller.signal.aborted) {
+        return null;
+      }
+
       if (!response.ok) {
-        throw new Error('Erro na conexão');
+        throw new Error(`Erro HTTP ${response.status}`);
       }
 
       const data: ReceitaWSResponse = await response.json();
 
       if (data.status === 'ERROR') {
-        setError('CNPJ não encontrado na Receita Federal');
-        setLeadData(null);
-        setRawResponse(null);
+        if (isMountedRef.current) {
+          setError(data.message || 'CNPJ não encontrado na Receita Federal');
+          setLeadData(null);
+          setRawResponse(null);
+        }
         return null;
       }
 
@@ -186,21 +262,43 @@ export function useReceitaWS() {
       saveToCache(cleaned, data);
 
       const lead = transformResponse(data);
-      setLeadData(lead);
-      setRawResponse(data);
+      
+      if (isMountedRef.current) {
+        setLeadData(lead);
+        setRawResponse(data);
+      }
       toast.success('Dados obtidos com sucesso!');
       return lead;
 
     } catch (err) {
+      // Don't update state if request was cancelled
+      if (err instanceof Error && err.message === 'Requisição cancelada') {
+        return null;
+      }
+      
       console.error('ReceitaWS error:', err);
-      setError('Erro ao buscar dados. Tente novamente.');
-      setLeadData(null);
-      setRawResponse(null);
+      
+      if (isMountedRef.current) {
+        const errorMessage = err instanceof Error 
+          ? (err.message.includes('Tempo limite') 
+              ? 'Tempo limite excedido. Tente novamente.'
+              : 'Erro ao buscar dados. Tente novamente.')
+          : 'Erro desconhecido';
+        setError(errorMessage);
+        setLeadData(null);
+        setRawResponse(null);
+      }
       return null;
     } finally {
-      setIsLoading(false);
+      if (isMountedRef.current) {
+        setIsLoading(false);
+      }
+      // Clear abort controller reference
+      if (abortControllerRef.current === controller) {
+        abortControllerRef.current = null;
+      }
     }
-  }, [leadData]);
+  }, []); // Remove leadData from dependencies to prevent loops
 
   const clearData = useCallback(() => {
     setLeadData(null);

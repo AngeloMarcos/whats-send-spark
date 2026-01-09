@@ -52,6 +52,33 @@ export const useQueueDispatcher = () => {
   const { toast } = useToast();
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const isMountedRef = useRef(true);
+
+  // Safe setState that checks if component is still mounted
+  const safeSetState = useCallback((updater: React.SetStateAction<DispatcherState>) => {
+    if (isMountedRef.current) {
+      setState(updater);
+    }
+  }, []);
+
+  // Cleanup on unmount - clear all timers and refs
+  useEffect(() => {
+    isMountedRef.current = true;
+    
+    return () => {
+      isMountedRef.current = false;
+      
+      // Clear all timers
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+  }, []);
 
   // Check for duplicate contacts already sent in previous campaigns
   const checkDuplicates = useCallback(async (phones: string[]): Promise<Set<string>> => {
@@ -360,36 +387,51 @@ export const useQueueDispatcher = () => {
     };
   }, [state.isRunning, state.isPaused, state.campaignId, state.nextSendTime, state.queue.length, processNext]);
 
-  // Subscribe to realtime updates
+  // Subscribe to realtime updates with proper cleanup
   useEffect(() => {
     if (!state.campaignId) return;
 
-    const channel = supabase
-      .channel(`campaign-queue-${state.campaignId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'campaign_queue',
-          filter: `campaign_id=eq.${state.campaignId}`,
-        },
-        (payload) => {
-          const updatedItem = payload.new as QueueItem;
-          if (updatedItem.status === 'sent') {
-            setState(prev => ({
-              ...prev,
-              queue: prev.queue.filter(q => q.id !== updatedItem.id),
-            }));
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+
+    try {
+      channel = supabase
+        .channel(`campaign-queue-${state.campaignId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'campaign_queue',
+            filter: `campaign_id=eq.${state.campaignId}`,
+          },
+          (payload) => {
+            // Check if still mounted before updating state
+            if (!isMountedRef.current) return;
+            
+            const updatedItem = payload.new as QueueItem;
+            if (updatedItem.status === 'sent') {
+              safeSetState(prev => ({
+                ...prev,
+                queue: prev.queue.filter(q => q.id !== updatedItem.id),
+              }));
+            }
           }
-        }
-      )
-      .subscribe();
+        )
+        .subscribe();
+    } catch (error) {
+      console.error('Error subscribing to realtime:', error);
+    }
 
     return () => {
-      supabase.removeChannel(channel);
+      if (channel) {
+        try {
+          supabase.removeChannel(channel);
+        } catch (error) {
+          console.error('Error removing channel:', error);
+        }
+      }
     };
-  }, [state.campaignId]);
+  }, [state.campaignId, safeSetState]);
 
   // Pause
   const pause = useCallback(() => {

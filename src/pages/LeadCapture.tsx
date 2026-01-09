@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { MapPin, Search, Phone, Clock, TrendingUp, Building } from 'lucide-react';
+import { MapPin, Search, Phone, Clock, TrendingUp, Building, AlertTriangle, RefreshCw } from 'lucide-react';
 import { useGooglePlaces, SearchMetrics } from '@/hooks/useGooglePlaces';
 import { SearchForm } from '@/components/leads/SearchForm';
 import { ResultsTable } from '@/components/leads/ResultsTable';
@@ -8,7 +8,9 @@ import { CNPJSearchForm } from '@/components/leads/CNPJSearchForm';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ErrorBoundary } from '@/components/ui/error-boundary';
+import { Button } from '@/components/ui/button';
 
 function StatsCards({ metrics }: { metrics: SearchMetrics }) {
   return (
@@ -140,7 +142,29 @@ export default function LeadCapture() {
           </div>
 
           <div className={`mt-6 ${activeTab === 'cnpj' ? 'block' : 'hidden'}`}>
-            <CNPJSearchForm />
+            <ErrorBoundary
+              fallback={
+                <Card className="p-6">
+                  <Alert variant="destructive">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertDescription className="flex items-center gap-2">
+                      Erro ao carregar busca por CNPJ.
+                      <Button 
+                        variant="link" 
+                        size="sm"
+                        onClick={() => window.location.reload()}
+                        className="h-auto p-0"
+                      >
+                        <RefreshCw className="h-3 w-3 mr-1" />
+                        Recarregar página
+                      </Button>
+                    </AlertDescription>
+                  </Alert>
+                </Card>
+              }
+            >
+              <CNPJSearchForm />
+            </ErrorBoundary>
           </div>
         </Tabs>
       </div>
