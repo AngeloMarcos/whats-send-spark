@@ -1,12 +1,12 @@
 import { useState } from 'react';
-import { MapPin, Search, Phone, Clock, TrendingUp, Building, AlertTriangle, RefreshCw, FolderOpen, FileSearch } from 'lucide-react';
+import { MapPin, Search, Phone, Clock, TrendingUp, AlertTriangle, RefreshCw, FolderOpen, FileSearch, Sparkles } from 'lucide-react';
 import { useGooglePlaces, SearchMetrics } from '@/hooks/useGooglePlaces';
 import { SearchForm } from '@/components/leads/SearchForm';
 import { ResultsTable } from '@/components/leads/ResultsTable';
 import { LeadActions } from '@/components/leads/LeadActions';
-import { CNPJSearchForm } from '@/components/leads/CNPJSearchForm';
 import { CNPJSearchModal } from '@/components/leads/CNPJSearchModal';
 import { ListsManager } from '@/components/leads/ListsManager';
+import { AutomaticBusinessSearch } from '@/components/leads/AutomaticBusinessSearch';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent } from '@/components/ui/card';
@@ -131,8 +131,8 @@ export default function LeadCapture() {
               Google Maps
             </TabsTrigger>
             <TabsTrigger value="cnpj" className="flex items-center gap-2">
-              <Building className="h-4 w-4" />
-              Busca CNPJ
+              <Sparkles className="h-4 w-4" />
+              Busca Automática
             </TabsTrigger>
             <TabsTrigger value="lists" className="flex items-center gap-2">
               <FolderOpen className="h-4 w-4" />
@@ -163,7 +163,7 @@ export default function LeadCapture() {
             />
           </div>
 
-          {/* CNPJ Tab */}
+          {/* Automatic Search Tab */}
           <div className={`mt-6 ${activeTab === 'cnpj' ? 'block' : 'hidden'}`}>
             <ErrorBoundary
               fallback={
@@ -171,7 +171,7 @@ export default function LeadCapture() {
                   <Alert variant="destructive">
                     <AlertTriangle className="h-4 w-4" />
                     <AlertDescription className="flex items-center gap-2">
-                      Erro ao carregar busca por CNPJ.
+                      Erro ao carregar busca automática.
                       <Button 
                         variant="link" 
                         size="sm"
@@ -186,7 +186,7 @@ export default function LeadCapture() {
                 </Card>
               }
             >
-              <CNPJSearchForm />
+              <AutomaticBusinessSearch />
             </ErrorBoundary>
           </div>
 
