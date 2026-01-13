@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Send, Loader2, FlaskConical, Plus, MessageSquare, Clock, Users } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Send, Loader2, FlaskConical, Plus, MessageSquare, Clock, Users, ExternalLink, CheckCircle2 } from 'lucide-react';
 import { Lead } from '@/hooks/useGooglePlaces';
 import { Template, Campaign } from '@/types/database';
 import {
@@ -40,6 +41,7 @@ export function CreateCampaignModal({
   leads,
   onCampaignCreated,
 }: CreateCampaignModalProps) {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const { toast } = useToast();
   const { config: sendingConfig, isLoading: isLoadingConfig } = useSendingConfig();
@@ -49,6 +51,8 @@ export function CreateCampaignModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isTestMode, setIsTestMode] = useState(false);
   const [defaultTestContact, setDefaultTestContact] = useState<{ phone: string; name: string } | null>(null);
+  const [createdCampaign, setCreatedCampaign] = useState<Campaign | null>(null);
+  const [showSuccess, setShowSuccess] = useState(false);
   
   const [formData, setFormData] = useState({
     name: '',
@@ -259,13 +263,10 @@ export function CreateCampaignModal({
         throw new Error('Falha ao inicializar fila de envio');
       }
 
-      toast({
-        title: '🚀 Campanha criada!',
-        description: `"${formData.name}" com ${contactsToSend.length} contatos iniciada com sucesso`,
-      });
-
+      // Show success state with navigation options
+      setCreatedCampaign(campaign as Campaign);
+      setShowSuccess(true);
       onCampaignCreated?.(campaign as Campaign);
-      handleClose();
     } catch (error: any) {
       console.error('Error creating campaign:', error);
       toast({
@@ -288,8 +289,59 @@ export function CreateCampaignModal({
       send_limit: '',
     });
     setIsTestMode(false);
+    setShowSuccess(false);
+    setCreatedCampaign(null);
     onOpenChange(false);
   };
+
+  const handleGoToCampaigns = () => {
+    handleClose();
+    navigate('/campanhas');
+  };
+
+  const handleGoToMonitor = () => {
+    if (createdCampaign) {
+      handleClose();
+      navigate(`/campanhas?monitor=${createdCampaign.id}`);
+    }
+  };
+
+  // Success screen after campaign creation
+  if (showSuccess && createdCampaign) {
+    return (
+      <Dialog open={open} onOpenChange={handleClose}>
+        <DialogContent className="sm:max-w-[450px]">
+          <div className="flex flex-col items-center text-center py-6 space-y-4">
+            <div className="h-16 w-16 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+              <CheckCircle2 className="h-8 w-8 text-green-600 dark:text-green-400" />
+            </div>
+            <div className="space-y-2">
+              <h2 className="text-xl font-semibold">Campanha Criada!</h2>
+              <p className="text-muted-foreground">
+                "{createdCampaign.name}" foi iniciada com sucesso
+              </p>
+              <Badge variant="secondary" className="mt-2">
+                {createdCampaign.contacts_total} contatos na fila
+              </Badge>
+            </div>
+            
+            <div className="flex flex-col w-full gap-2 pt-4">
+              <Button onClick={handleGoToMonitor} className="w-full">
+                <ExternalLink className="mr-2 h-4 w-4" />
+                Ir para Monitor em Tempo Real
+              </Button>
+              <Button variant="outline" onClick={handleGoToCampaigns} className="w-full">
+                Ver Todas as Campanhas
+              </Button>
+              <Button variant="ghost" onClick={handleClose} className="w-full">
+                Continuar Capturando Leads
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
