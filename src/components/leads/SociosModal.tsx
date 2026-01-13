@@ -1,4 +1,4 @@
-import { Users, Phone, Calendar, Building2, MessageCircle, ExternalLink } from 'lucide-react';
+import { Users, Phone, Calendar, Building2, MessageCircle, ExternalLink, Shield, ShieldCheck, ShieldAlert, Smartphone } from 'lucide-react';
 import { Socio } from '@/hooks/useGooglePlaces';
 import {
   Dialog,
@@ -10,7 +10,6 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Button } from '@/components/ui/button';
 
 interface SociosModalProps {
   open: boolean;
@@ -35,8 +34,61 @@ export function SociosModal({ open, onOpenChange, razaoSocial, socios }: SociosM
     return `https://wa.me/55${cleaned}`;
   };
 
+  const getConfiabilidadeBadge = (confiabilidade?: string) => {
+    switch (confiabilidade) {
+      case 'alta':
+        return (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Badge className="bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-400 text-[10px] px-1 py-0">
+                <ShieldCheck className="h-2.5 w-2.5 mr-0.5" />
+                Alta
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent>Confiabilidade alta - telefone verificado</TooltipContent>
+          </Tooltip>
+        );
+      case 'media':
+        return (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Badge className="bg-yellow-100 text-yellow-700 dark:bg-yellow-950 dark:text-yellow-400 text-[10px] px-1 py-0">
+                <Shield className="h-2.5 w-2.5 mr-0.5" />
+                Média
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent>Confiabilidade média - verificar antes de usar</TooltipContent>
+          </Tooltip>
+        );
+      case 'baixa':
+        return (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Badge className="bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-400 text-[10px] px-1 py-0">
+                <ShieldAlert className="h-2.5 w-2.5 mr-0.5" />
+                Baixa
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent>Confiabilidade baixa - confirmar telefone</TooltipContent>
+          </Tooltip>
+        );
+      default:
+        return null;
+    }
+  };
+
+  const getTipoIcon = (tipo?: string) => {
+    if (tipo === 'celular') {
+      return <Smartphone className="h-3 w-3 text-green-600" />;
+    }
+    return <Phone className="h-3 w-3" />;
+  };
+
   const sociosWithPhone = socios.filter(s => s.telefonesEncontrados && s.telefonesEncontrados.length > 0).length;
   const totalPhones = socios.reduce((acc, s) => acc + (s.telefonesEncontrados?.length || 0), 0);
+  const totalCelulares = socios.reduce((acc, s) => {
+    return acc + (s.tiposTelefones?.filter(t => t === 'celular').length || 0);
+  }, 0);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -86,15 +138,20 @@ export function SociosModal({ open, onOpenChange, razaoSocial, socios }: SociosM
                                 <Phone className="h-3 w-3" />
                                 Telefones encontrados:
                               </p>
-                              <div className="flex flex-wrap gap-2">
+                              <div className="space-y-2">
                                 {socio.telefonesEncontrados.map((tel, i) => (
-                                  <div key={i} className="flex items-center gap-1">
+                                  <div key={i} className="flex flex-wrap items-center gap-1.5">
                                     <Badge 
                                       className="bg-green-100 text-green-700 border-green-300 dark:bg-green-950 dark:text-green-400 dark:border-green-700"
                                     >
-                                      <Phone className="h-3 w-3 mr-1" />
-                                      {tel}
+                                      {getTipoIcon(socio.tiposTelefones?.[i])}
+                                      <span className="ml-1">{tel}</span>
                                     </Badge>
+                                    
+                                    {/* Confiabilidade badge */}
+                                    {socio.confiabilidadesTelefones?.[i] && 
+                                      getConfiabilidadeBadge(socio.confiabilidadesTelefones[i])
+                                    }
                                     
                                     {/* WhatsApp button */}
                                     <Tooltip>
@@ -116,16 +173,17 @@ export function SociosModal({ open, onOpenChange, razaoSocial, socios }: SociosM
                                       <Tooltip>
                                         <TooltipTrigger asChild>
                                           <a
-                                            href={socio.fontesTelefones[i]}
+                                            href={socio.fontesTelefones[i].startsWith('http') ? socio.fontesTelefones[i] : undefined}
                                             target="_blank"
                                             rel="noopener noreferrer"
-                                            className="inline-flex items-center justify-center h-5 w-5 rounded text-muted-foreground hover:text-foreground transition-colors"
+                                            className="inline-flex items-center justify-center h-5 px-1.5 rounded text-[10px] bg-muted text-muted-foreground hover:text-foreground transition-colors"
                                           >
-                                            <ExternalLink className="h-3 w-3" />
+                                            <ExternalLink className="h-2.5 w-2.5 mr-0.5" />
+                                            Fonte
                                           </a>
                                         </TooltipTrigger>
                                         <TooltipContent side="top" className="max-w-xs">
-                                          <p className="text-xs">Fonte: {socio.fontesTelefones[i]}</p>
+                                          <p className="text-xs break-all">{socio.fontesTelefones[i]}</p>
                                         </TooltipContent>
                                       </Tooltip>
                                     )}
@@ -170,7 +228,7 @@ export function SociosModal({ open, onOpenChange, razaoSocial, socios }: SociosM
             </p>
             {totalPhones > 0 && (
               <p className="text-xs text-green-600 dark:text-green-400 text-center font-medium">
-                📞 {totalPhones} telefone(s) encontrado(s) em {sociosWithPhone} sócio(s)
+                📞 {totalPhones} telefone(s) ({totalCelulares} celular{totalCelulares !== 1 ? 'es' : ''}) em {sociosWithPhone} sócio(s)
               </p>
             )}
           </div>

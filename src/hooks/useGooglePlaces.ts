@@ -9,6 +9,8 @@ export interface Socio {
   tipo: 'PF' | 'PJ';
   telefonesEncontrados?: string[];
   fontesTelefones?: string[];
+  confiabilidadesTelefones?: string[];
+  tiposTelefones?: string[];
 }
 
 export interface Lead {
