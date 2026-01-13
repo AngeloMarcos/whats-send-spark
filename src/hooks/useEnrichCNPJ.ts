@@ -37,6 +37,7 @@ interface CNPJSearchResult {
     qualificacao_socio: string;
     data_entrada_sociedade?: string;
     identificador_de_socio?: number | string;
+    cnpj_cpf_do_socio?: string;
   }>;
   similarity: number;
   message?: string;
@@ -187,7 +188,8 @@ export function useEnrichCNPJ() {
   // Main enrichment function
   const enriquecerLeads = useCallback(async (
     leads: Lead[],
-    buscarTelefonesSocios: boolean = false
+    buscarTelefonesSocios: boolean = false,
+    overrideLocation?: { city: string; state: string }
   ): Promise<Lead[]> => {
     setIsEnriching(true);
     setProgress({ current: 0, total: leads.length, status: 'Iniciando enriquecimento...', step: 'searching_cnpj' });
@@ -213,15 +215,19 @@ export function useEnrichCNPJ() {
             step: 'searching_cnpj'
           });
           
-          const { city, state } = extractCityState(lead.address);
+          // Use override location if provided, otherwise extract from address
+          const { city, state } = overrideLocation || extractCityState(lead.address);
           const result = await buscarCNPJPorNome(lead.name, city, state, lead.address);
           
-          if (result.cnpj && result.similarity >= 0.55) {
+          // Accept matches with similarity >= 0.45 (aligned with backend)
+          if (result.cnpj && result.similarity >= 0.45) {
             cnpj = result.cnpj;
             cnpjData = result;
             foundByName = true;
             cnpjFoundByNameCount++;
             console.log(`Found CNPJ ${cnpj} for ${lead.name} with similarity ${result.similarity.toFixed(2)}`);
+          } else if (result.cnpj) {
+            console.log(`Rejected CNPJ ${result.cnpj} for ${lead.name} - similarity too low: ${result.similarity.toFixed(2)}`);
           }
           
           // Small delay between CNPJ searches
@@ -251,11 +257,17 @@ export function useEnrichCNPJ() {
           const socios: Socio[] = [];
           
           for (const s of cnpjData.qsa) {
+            // BrasilAPI uses: 1=PJ, 2=PF; OpenCNPJ may vary
+            // If identificador is 2 or if cnpj_cpf looks like CPF (11 digits or masked), treat as PF
+            const identificador = Number(s.identificador_de_socio);
+            const isPF = identificador === 2 || 
+                        (s.cnpj_cpf_do_socio && s.cnpj_cpf_do_socio.replace(/\D/g, '').length === 11);
+            
             const socio: Socio = {
               nome: s.nome_socio,
               qualificacao: s.qualificacao_socio,
               dataEntrada: s.data_entrada_sociedade,
-              tipo: s.identificador_de_socio === 1 || s.identificador_de_socio === '1' ? 'PF' : 'PJ',
+              tipo: isPF ? 'PF' : 'PJ',
               telefonesEncontrados: [],
               fontesTelefones: []
             };
@@ -336,11 +348,16 @@ export function useEnrichCNPJ() {
             const socios: Socio[] = [];
             
             for (const s of (data.qsa || [])) {
+              // BrasilAPI uses: 1=PJ, 2=PF
+              const identificador = Number(s.identificador_de_socio);
+              const isPF = identificador === 2 || 
+                          (s.cnpj_cpf_do_socio && s.cnpj_cpf_do_socio.replace(/\D/g, '').length === 11);
+              
               const socio: Socio = {
                 nome: s.nome_socio,
                 qualificacao: s.qualificacao_socio,
                 dataEntrada: s.data_entrada_sociedade,
-                tipo: s.identificador_de_socio === 1 || s.identificador_de_socio === '1' ? 'PF' : 'PJ',
+                tipo: isPF ? 'PF' : 'PJ',
                 telefonesEncontrados: [],
                 fontesTelefones: []
               };
