@@ -1,4 +1,4 @@
-import { Users, Phone, Calendar, Building2, MessageCircle, ExternalLink, Shield, ShieldCheck, ShieldAlert, Smartphone } from 'lucide-react';
+import { Users, Phone, Calendar, Building2, MessageCircle, ExternalLink, Shield, ShieldCheck, ShieldAlert, Smartphone, Send } from 'lucide-react';
 import { Socio } from '@/hooks/useGooglePlaces';
 import {
   Dialog,
@@ -10,6 +10,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Button } from '@/components/ui/button';
 
 interface SociosModalProps {
   open: boolean;
@@ -17,6 +18,10 @@ interface SociosModalProps {
   razaoSocial: string;
   socios: Socio[];
 }
+
+// Mensagem padrão de abordagem comercial
+const MENSAGEM_PADRAO = (nomeEmpresa: string) => 
+  `Olá, vi que você é sócio da ${nomeEmpresa}. Tenho uma solução de automação de WhatsApp/CRM que ajuda imobiliárias a atender leads 24h, qualificar automaticamente e aumentar fechamentos. Posso te mostrar rapidinho como funciona?`;
 
 export function SociosModal({ open, onOpenChange, razaoSocial, socios }: SociosModalProps) {
   const formatDate = (dateStr?: string) => {
@@ -29,9 +34,52 @@ export function SociosModal({ open, onOpenChange, razaoSocial, socios }: SociosM
     }
   };
 
+  // Limpa o telefone deixando apenas dígitos
+  const limparTelefone = (phone: string): string => {
+    return phone.replace(/\D/g, '');
+  };
+
+  // Valida se o telefone tem pelo menos 10 dígitos (DDD + número)
+  const telefoneValido = (phone: string): boolean => {
+    const limpo = limparTelefone(phone);
+    return limpo.length >= 10;
+  };
+
+  // Gera link do WhatsApp simples (sem mensagem)
   const getWhatsAppLink = (phone: string) => {
-    const cleaned = phone.replace(/\D/g, '');
+    const cleaned = limparTelefone(phone);
     return `https://wa.me/55${cleaned}`;
+  };
+
+  // Gera link do WhatsApp com mensagem de abordagem
+  const getWhatsAppLinkComMensagem = (phone: string, nomeEmpresa: string) => {
+    const cleaned = limparTelefone(phone);
+    const mensagem = encodeURIComponent(MENSAGEM_PADRAO(nomeEmpresa));
+    return `https://wa.me/55${cleaned}?text=${mensagem}`;
+  };
+
+  // Obtém o primeiro telefone válido do sócio (priorizando celulares)
+  const getPrimeiroTelefoneValido = (socio: Socio): string | null => {
+    if (!socio.telefonesEncontrados || socio.telefonesEncontrados.length === 0) {
+      return null;
+    }
+
+    // Primeiro tenta encontrar um celular válido
+    for (let i = 0; i < socio.telefonesEncontrados.length; i++) {
+      const tel = socio.telefonesEncontrados[i];
+      if (telefoneValido(tel) && socio.tiposTelefones?.[i] === 'celular') {
+        return tel;
+      }
+    }
+
+    // Se não encontrou celular, retorna o primeiro telefone válido
+    for (const tel of socio.telefonesEncontrados) {
+      if (telefoneValido(tel)) {
+        return tel;
+      }
+    }
+
+    return null;
   };
 
   const getConfiabilidadeBadge = (confiabilidade?: string) => {
@@ -112,108 +160,136 @@ export function SociosModal({ open, onOpenChange, razaoSocial, socios }: SociosM
               </div>
             ) : (
               <TooltipProvider>
-                {socios.map((socio, index) => (
-                  <Card key={index} className="border-l-4 border-l-primary/50">
-                    <CardContent className="pt-4 pb-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex-1 space-y-1.5 min-w-0">
-                          <p className="font-semibold text-foreground truncate">
-                            {socio.nome}
-                          </p>
-                          <p className="text-sm text-muted-foreground">
-                            {socio.qualificacao}
-                          </p>
-                          
-                          {socio.dataEntrada && (
-                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                              <Calendar className="h-3 w-3" />
-                              Entrada: {formatDate(socio.dataEntrada)}
-                            </div>
-                          )}
-                          
-                          {/* Found phones with WhatsApp buttons */}
-                          {socio.telefonesEncontrados && socio.telefonesEncontrados.length > 0 && (
-                            <div className="mt-3 space-y-2">
-                              <p className="text-xs font-medium text-green-700 dark:text-green-400 flex items-center gap-1">
-                                <Phone className="h-3 w-3" />
-                                Telefones encontrados:
+                {socios.map((socio, index) => {
+                  const primeiroTelefone = getPrimeiroTelefoneValido(socio);
+                  
+                  return (
+                    <Card key={index} className="border-l-4 border-l-primary/50">
+                      <CardContent className="pt-4 pb-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex-1 space-y-1.5 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="font-semibold text-foreground truncate">
+                                {socio.nome}
                               </p>
-                              <div className="space-y-2">
-                                {socio.telefonesEncontrados.map((tel, i) => (
-                                  <div key={i} className="flex flex-wrap items-center gap-1.5">
-                                    <Badge 
-                                      className="bg-green-100 text-green-700 border-green-300 dark:bg-green-950 dark:text-green-400 dark:border-green-700"
-                                    >
-                                      {getTipoIcon(socio.tiposTelefones?.[i])}
-                                      <span className="ml-1">{tel}</span>
-                                    </Badge>
-                                    
-                                    {/* Confiabilidade badge */}
-                                    {socio.confiabilidadesTelefones?.[i] && 
-                                      getConfiabilidadeBadge(socio.confiabilidadesTelefones[i])
-                                    }
-                                    
-                                    {/* WhatsApp button */}
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <a
-                                          href={getWhatsAppLink(tel)}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-green-500 hover:bg-green-600 text-white transition-colors"
-                                        >
-                                          <MessageCircle className="h-3 w-3" />
-                                        </a>
-                                      </TooltipTrigger>
-                                      <TooltipContent>Abrir WhatsApp</TooltipContent>
-                                    </Tooltip>
-
-                                    {/* Source tooltip */}
-                                    {socio.fontesTelefones?.[i] && (
-                                      <Tooltip>
-                                        <TooltipTrigger asChild>
-                                          <a
-                                            href={socio.fontesTelefones[i].startsWith('http') ? socio.fontesTelefones[i] : undefined}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="inline-flex items-center justify-center h-5 px-1.5 rounded text-[10px] bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                                          >
-                                            <ExternalLink className="h-2.5 w-2.5 mr-0.5" />
-                                            Fonte
-                                          </a>
-                                        </TooltipTrigger>
-                                        <TooltipContent side="top" className="max-w-xs">
-                                          <p className="text-xs break-all">{socio.fontesTelefones[i]}</p>
-                                        </TooltipContent>
-                                      </Tooltip>
-                                    )}
-                                  </div>
-                                ))}
-                              </div>
+                              <Badge 
+                                variant={socio.tipo === 'PF' ? 'default' : 'secondary'}
+                                className="shrink-0"
+                              >
+                                {socio.tipo === 'PF' ? (
+                                  <>
+                                    <Users className="h-3 w-3 mr-1" />
+                                    PF
+                                  </>
+                                ) : (
+                                  <>
+                                    <Building2 className="h-3 w-3 mr-1" />
+                                    PJ
+                                  </>
+                                )}
+                              </Badge>
                             </div>
-                          )}
+                            
+                            <p className="text-sm text-muted-foreground">
+                              {socio.qualificacao}
+                            </p>
+                            
+                            {socio.dataEntrada && (
+                              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                <Calendar className="h-3 w-3" />
+                                Entrada: {formatDate(socio.dataEntrada)}
+                              </div>
+                            )}
+                            
+                            {/* Botão principal WhatsApp Sócio - aparece apenas se tiver telefone válido */}
+                            {primeiroTelefone && (
+                              <div className="mt-3">
+                                <Button
+                                  asChild
+                                  size="sm"
+                                  className="bg-green-600 hover:bg-green-700 text-white w-full sm:w-auto"
+                                >
+                                  <a
+                                    href={getWhatsAppLinkComMensagem(primeiroTelefone, razaoSocial)}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                  >
+                                    <Send className="h-4 w-4 mr-2" />
+                                    WhatsApp Sócio
+                                  </a>
+                                </Button>
+                              </div>
+                            )}
+                            
+                            {/* Lista de telefones encontrados */}
+                            {socio.telefonesEncontrados && socio.telefonesEncontrados.length > 0 && (
+                              <div className="mt-3 space-y-2">
+                                <p className="text-xs font-medium text-green-700 dark:text-green-400 flex items-center gap-1">
+                                  <Phone className="h-3 w-3" />
+                                  Telefones encontrados:
+                                </p>
+                                <div className="space-y-2">
+                                  {socio.telefonesEncontrados.map((tel, i) => (
+                                    <div key={i} className="flex flex-wrap items-center gap-1.5">
+                                      <Badge 
+                                        className="bg-green-100 text-green-700 border-green-300 dark:bg-green-950 dark:text-green-400 dark:border-green-700"
+                                      >
+                                        {getTipoIcon(socio.tiposTelefones?.[i])}
+                                        <span className="ml-1">{tel}</span>
+                                      </Badge>
+                                      
+                                      {/* Confiabilidade badge */}
+                                      {socio.confiabilidadesTelefones?.[i] && 
+                                        getConfiabilidadeBadge(socio.confiabilidadesTelefones[i])
+                                      }
+                                      
+                                      {/* WhatsApp button - só mostra se telefone for válido */}
+                                      {telefoneValido(tel) && (
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <a
+                                              href={getWhatsAppLink(tel)}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-green-500 hover:bg-green-600 text-white transition-colors"
+                                            >
+                                              <MessageCircle className="h-3 w-3" />
+                                            </a>
+                                          </TooltipTrigger>
+                                          <TooltipContent>Abrir WhatsApp (sem mensagem)</TooltipContent>
+                                        </Tooltip>
+                                      )}
+
+                                      {/* Source tooltip */}
+                                      {socio.fontesTelefones?.[i] && (
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <a
+                                              href={socio.fontesTelefones[i].startsWith('http') ? socio.fontesTelefones[i] : undefined}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="inline-flex items-center justify-center h-5 px-1.5 rounded text-[10px] bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                                            >
+                                              <ExternalLink className="h-2.5 w-2.5 mr-0.5" />
+                                              Fonte
+                                            </a>
+                                          </TooltipTrigger>
+                                          <TooltipContent side="top" className="max-w-xs">
+                                            <p className="text-xs break-all">{socio.fontesTelefones[i]}</p>
+                                          </TooltipContent>
+                                        </Tooltip>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
                         </div>
-                        
-                        <Badge 
-                          variant={socio.tipo === 'PF' ? 'default' : 'secondary'}
-                          className="shrink-0"
-                        >
-                          {socio.tipo === 'PF' ? (
-                            <>
-                              <Users className="h-3 w-3 mr-1" />
-                              PF
-                            </>
-                          ) : (
-                            <>
-                              <Building2 className="h-3 w-3 mr-1" />
-                              PJ
-                            </>
-                          )}
-                        </Badge>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
               </TooltipProvider>
             )}
           </div>
