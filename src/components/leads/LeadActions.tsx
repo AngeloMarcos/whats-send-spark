@@ -154,6 +154,9 @@ export function LeadActions({ leads, selectedLeads }: LeadActionsProps) {
       'Qtd Sócios': lead.socios?.length || 0,
       'Nomes Sócios': lead.socios?.map(s => s.nome).join(' | ') || '',
       'Qualificações Sócios': lead.socios?.map(s => s.qualificacao).join(' | ') || '',
+      // Partner phones found via Google Search
+      'Telefones Sócios': lead.socios?.flatMap(s => s.telefonesEncontrados || []).join(' | ') || '',
+      'Fontes Telefones Sócios': lead.socios?.flatMap(s => s.fontesTelefones || []).join(' | ') || '',
     }));
 
     const ws = XLSX.utils.json_to_sheet(data);
@@ -186,6 +189,8 @@ export function LeadActions({ leads, selectedLeads }: LeadActionsProps) {
       'Situação Cadastral': lead.situacao_cadastral || '',
       'Qtd Sócios': lead.socios?.length || 0,
       'Nomes Sócios': lead.socios?.map(s => s.nome).join(' | ') || '',
+      // Partner phones found via Google Search
+      'Telefones Sócios': lead.socios?.flatMap(s => s.telefonesEncontrados || []).join(' | ') || '',
     }));
 
     const ws = XLSX.utils.json_to_sheet(data);
