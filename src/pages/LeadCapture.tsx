@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { MapPin, Search, Phone, Clock, TrendingUp, Building, AlertTriangle, RefreshCw, FolderOpen } from 'lucide-react';
+import { MapPin, Search, Phone, Clock, TrendingUp, Building, AlertTriangle, RefreshCw, FolderOpen, FileSearch } from 'lucide-react';
 import { useGooglePlaces, SearchMetrics } from '@/hooks/useGooglePlaces';
 import { SearchForm } from '@/components/leads/SearchForm';
 import { ResultsTable } from '@/components/leads/ResultsTable';
 import { LeadActions } from '@/components/leads/LeadActions';
 import { CNPJSearchForm } from '@/components/leads/CNPJSearchForm';
+import { CNPJSearchModal } from '@/components/leads/CNPJSearchModal';
 import { ListsManager } from '@/components/leads/ListsManager';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -12,7 +13,6 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
 import { Button } from '@/components/ui/button';
-
 function StatsCards({ metrics }: { metrics: SearchMetrics }) {
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -79,7 +79,7 @@ export default function LeadCapture() {
   const { leads, isLoading, error, metrics, searchPlaces } = useGooglePlaces();
   const [selectedLeads, setSelectedLeads] = useState<Set<string>>(new Set());
   const [activeTab, setActiveTab] = useState('google-maps');
-
+  const [showCNPJModal, setShowCNPJModal] = useState(false);
   const handleSearch = async (params: {
     query: string;
     location: string;
@@ -95,18 +95,35 @@ export default function LeadCapture() {
   return (
     <AppLayout>
       <div className="space-y-6">
-        <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-lg bg-primary flex items-center justify-center">
-            <Search className="h-5 w-5 text-primary-foreground" />
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-lg bg-primary flex items-center justify-center">
+              <Search className="h-5 w-5 text-primary-foreground" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold">🔍 Capturar Leads</h1>
+              <p className="text-muted-foreground">
+                Encontre empresas via Google Maps ou CNPJ e gere links WhatsApp
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-2xl font-bold">🔍 Capturar Leads</h1>
-            <p className="text-muted-foreground">
-              Encontre empresas via Google Maps ou CNPJ e gere links WhatsApp
-            </p>
-          </div>
+          
+          {/* Botão de busca rápida por CNPJ */}
+          <Button 
+            onClick={() => setShowCNPJModal(true)}
+            className="hidden md:flex"
+            variant="outline"
+          >
+            <FileSearch className="h-4 w-4 mr-2" />
+            Buscar CNPJ Rápido
+          </Button>
         </div>
 
+        {/* Modal de busca CNPJ */}
+        <CNPJSearchModal
+          open={showCNPJModal}
+          onOpenChange={setShowCNPJModal}
+        />
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="grid w-full grid-cols-3 max-w-lg">
             <TabsTrigger value="google-maps" className="flex items-center gap-2">
