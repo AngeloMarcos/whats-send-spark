@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useLoginRateLimit, formatRemainingTime } from '@/hooks/useLoginRateLimit';
 import { useAuditLog } from '@/hooks/useAuditLog';
+import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -11,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useToast } from '@/hooks/use-toast';
 import { PasswordStrength, validateStrongPassword } from '@/components/auth/PasswordStrength';
-import { MessageSquare, Loader2, Eye, EyeOff, ShieldAlert } from 'lucide-react';
+import { MessageSquare, Loader2, Eye, EyeOff, ShieldAlert, Mail } from 'lucide-react';
 import { z } from 'zod';
 
 const emailSchema = z.string().email('Email inválido');
@@ -114,6 +115,36 @@ export default function Auth() {
       // Record successful attempt
       recordAttempt(true);
       logLogin(true, email);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    if (!email) {
+      toast({
+        title: 'Email necessário',
+        description: 'Digite seu email para recuperar a senha',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsLoading(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/auth`,
+    });
+    setIsLoading(false);
+
+    if (error) {
+      toast({
+        title: 'Erro',
+        description: error.message,
+        variant: 'destructive',
+      });
+    } else {
+      toast({
+        title: 'Email enviado!',
+        description: 'Verifique sua caixa de entrada para redefinir a senha.',
+      });
     }
   };
 
@@ -231,6 +262,18 @@ export default function Auth() {
                       {attemptsRemaining} tentativa{attemptsRemaining !== 1 ? 's' : ''} restante{attemptsRemaining !== 1 ? 's' : ''}
                     </p>
                   )}
+                </div>
+                <div className="flex justify-end">
+                  <Button
+                    type="button"
+                    variant="link"
+                    className="px-0 text-sm text-muted-foreground h-auto"
+                    onClick={handleForgotPassword}
+                    disabled={isLoading}
+                  >
+                    <Mail className="mr-1 h-3 w-3" />
+                    Esqueci minha senha
+                  </Button>
                 </div>
                 <Button type="submit" className="w-full" disabled={isLoading || isBlocked}>
                   {isLoading ? (
