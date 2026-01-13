@@ -315,6 +315,45 @@ export function LeadActions({ leads, selectedLeads }: LeadActionsProps) {
 
       console.log('Contacts inserted successfully');
 
+      // Also insert into leads table for tracking and enrichment
+      const leadsData = leadsToInsert.map(lead => ({
+        user_id: user.id,
+        list_id: listId,
+        nome: lead.name,
+        telefones: lead.phone,
+        telefones_array: [lead.phone],
+        endereco: lead.address,
+        atividade: lead.category,
+        cnpj: lead.cnpj || null,
+        razao_social: lead.razaoSocial || null,
+        nome_fantasia: lead.nomeFantasia || null,
+        email: lead.email_oficial || null,
+        situacao: lead.situacao_cadastral || null,
+        socios: lead.socios ? JSON.parse(JSON.stringify(lead.socios)) : null,
+        source: 'google_maps',
+        status: 'novo',
+        extra_data: {
+          rating: lead.rating,
+          reviews_count: lead.reviews_count,
+          website: lead.website,
+          latitude: lead.latitude,
+          longitude: lead.longitude,
+          place_id: lead.place_id,
+          captured_at: new Date().toISOString(),
+        },
+      }));
+
+      const { error: leadsError } = await supabase
+        .from('leads')
+        .insert(leadsData);
+
+      if (leadsError) {
+        console.error('Error inserting leads:', leadsError);
+        // Don't throw here - contacts were already saved successfully
+      } else {
+        console.log('Leads inserted successfully');
+      }
+
       const skippedText = duplicateAnalysis?.duplicateCount 
         ? ` (${duplicateAnalysis.duplicateCount} duplicados ignorados)` 
         : '';
