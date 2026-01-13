@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Send, Loader2, FlaskConical, Plus, MessageSquare, Clock, Users, ExternalLink, CheckCircle2 } from 'lucide-react';
+import { Send, Loader2, FlaskConical, Users, ExternalLink, CheckCircle2 } from 'lucide-react';
 import { Lead } from '@/hooks/useGooglePlaces';
 import { Template, Campaign } from '@/types/database';
 import {
@@ -18,7 +18,6 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
@@ -110,6 +109,27 @@ export function CreateCampaignModal({
       template_id: templateId,
       message: template?.content || formData.message,
     });
+  };
+
+  const resetForm = () => {
+    setFormData({
+      name: '',
+      template_id: '',
+      message: '',
+      send_now: true,
+      scheduled_at: '',
+      send_limit: '',
+    });
+    setIsTestMode(false);
+    setShowSuccess(false);
+    setCreatedCampaign(null);
+  };
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      resetForm();
+    }
+    onOpenChange(nextOpen);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -279,236 +299,240 @@ export function CreateCampaignModal({
     }
   };
 
-  const handleClose = () => {
-    setFormData({
-      name: '',
-      template_id: '',
-      message: '',
-      send_now: true,
-      scheduled_at: '',
-      send_limit: '',
-    });
-    setIsTestMode(false);
-    setShowSuccess(false);
-    setCreatedCampaign(null);
-    onOpenChange(false);
-  };
-
   const handleGoToCampaigns = () => {
-    handleClose();
-    navigate('/campanhas');
+    onOpenChange(false);
+    // Navigate after dialog closes to avoid React reconciliation issues
+    setTimeout(() => {
+      navigate('/campanhas');
+    }, 0);
   };
 
   const handleGoToMonitor = () => {
     if (createdCampaign) {
-      handleClose();
-      navigate(`/campanhas?monitor=${createdCampaign.id}`);
+      onOpenChange(false);
+      // Navigate after dialog closes to avoid React reconciliation issues
+      setTimeout(() => {
+        navigate(`/campanhas?monitor=${createdCampaign.id}`);
+      }, 0);
     }
   };
 
-  // Success screen after campaign creation
-  if (showSuccess && createdCampaign) {
-    return (
-      <Dialog open={open} onOpenChange={handleClose}>
-        <DialogContent className="sm:max-w-[450px]">
-          <div className="flex flex-col items-center text-center py-6 space-y-4">
-            <div className="h-16 w-16 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
-              <CheckCircle2 className="h-8 w-8 text-green-600 dark:text-green-400" />
-            </div>
-            <div className="space-y-2">
-              <h2 className="text-xl font-semibold">Campanha Criada!</h2>
-              <p className="text-muted-foreground">
-                "{createdCampaign.name}" foi iniciada com sucesso
+  const handleContinue = () => {
+    handleOpenChange(false);
+  };
+
+  // Success content component
+  const SuccessContent = () => (
+    <>
+      <DialogHeader className="sr-only">
+        <DialogTitle>Campanha Criada com Sucesso</DialogTitle>
+        <DialogDescription>
+          Sua campanha foi criada e está sendo processada
+        </DialogDescription>
+      </DialogHeader>
+      <div className="flex flex-col items-center text-center py-6 space-y-4">
+        <div className="h-16 w-16 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+          <CheckCircle2 className="h-8 w-8 text-green-600 dark:text-green-400" />
+        </div>
+        <div className="space-y-2">
+          <h2 className="text-xl font-semibold">Campanha Criada!</h2>
+          <p className="text-muted-foreground">
+            "{createdCampaign?.name}" foi iniciada com sucesso
+          </p>
+          <Badge variant="secondary" className="mt-2">
+            {createdCampaign?.contacts_total} contatos na fila
+          </Badge>
+        </div>
+        
+        <div className="flex flex-col w-full gap-2 pt-4">
+          <Button onClick={handleGoToMonitor} className="w-full">
+            <ExternalLink className="mr-2 h-4 w-4" />
+            Ir para Monitor em Tempo Real
+          </Button>
+          <Button variant="outline" onClick={handleGoToCampaigns} className="w-full">
+            Ver Todas as Campanhas
+          </Button>
+          <Button variant="ghost" onClick={handleContinue} className="w-full">
+            Continuar Capturando Leads
+          </Button>
+        </div>
+      </div>
+    </>
+  );
+
+  // Form content component
+  const FormContent = () => (
+    <>
+      <DialogHeader>
+        <DialogTitle className="flex items-center gap-2">
+          <Send className="h-5 w-5 text-primary" />
+          Criar Campanha
+        </DialogTitle>
+        <DialogDescription>
+          Crie uma campanha de WhatsApp diretamente com os {leads.length} leads selecionados
+        </DialogDescription>
+      </DialogHeader>
+
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Selected Leads Badge */}
+        <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg">
+          <Users className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm text-muted-foreground">Contatos selecionados:</span>
+          <Badge variant="secondary" className="font-bold">
+            {leads.length} leads
+          </Badge>
+        </div>
+
+        {/* Campaign Name */}
+        <div className="space-y-2">
+          <Label htmlFor="name">Nome da Campanha *</Label>
+          <Input
+            id="name"
+            value={formData.name}
+            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+            placeholder="Ex: Prospecção Restaurantes SP"
+            required
+          />
+        </div>
+
+        {/* Template Selection */}
+        <div className="space-y-2">
+          <Label>Template (opcional)</Label>
+          <Select value={formData.template_id} onValueChange={handleTemplateChange}>
+            <SelectTrigger>
+              <SelectValue placeholder="Selecione um template ou escreva abaixo" />
+            </SelectTrigger>
+            <SelectContent>
+              {templates.length === 0 ? (
+                <div className="p-2 text-sm text-muted-foreground text-center">
+                  Nenhum template disponível
+                </div>
+              ) : (
+                templates.map((template) => (
+                  <SelectItem key={template.id} value={template.id}>
+                    {template.name}
+                  </SelectItem>
+                ))
+              )}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Test Mode Toggle */}
+        <div className="flex items-center justify-between rounded-lg border border-destructive/50 bg-destructive/5 p-4">
+          <div className="flex items-center gap-3">
+            <FlaskConical className="h-5 w-5 text-destructive" />
+            <div>
+              <Label className="text-destructive">Modo Teste</Label>
+              <p className="text-xs text-destructive/70">
+                Envia para contato de teste, limite de 10 msgs
               </p>
-              <Badge variant="secondary" className="mt-2">
-                {createdCampaign.contacts_total} contatos na fila
-              </Badge>
-            </div>
-            
-            <div className="flex flex-col w-full gap-2 pt-4">
-              <Button onClick={handleGoToMonitor} className="w-full">
-                <ExternalLink className="mr-2 h-4 w-4" />
-                Ir para Monitor em Tempo Real
-              </Button>
-              <Button variant="outline" onClick={handleGoToCampaigns} className="w-full">
-                Ver Todas as Campanhas
-              </Button>
-              <Button variant="ghost" onClick={handleClose} className="w-full">
-                Continuar Capturando Leads
-              </Button>
             </div>
           </div>
-        </DialogContent>
-      </Dialog>
-    );
-  }
+          <Switch
+            checked={isTestMode}
+            onCheckedChange={setIsTestMode}
+            className="data-[state=checked]:bg-destructive"
+          />
+        </div>
 
-  return (
-    <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Send className="h-5 w-5 text-primary" />
-            Criar Campanha
-          </DialogTitle>
-          <DialogDescription>
-            Crie uma campanha de WhatsApp diretamente com os {leads.length} leads selecionados
-          </DialogDescription>
-        </DialogHeader>
+        {isTestMode && (
+          <TestModeBanner
+            testContactPhone={defaultTestContact?.phone}
+            maxMessages={10}
+            intervalSeconds={5}
+          />
+        )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Selected Leads Badge */}
-          <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg">
-            <Users className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm text-muted-foreground">Contatos selecionados:</span>
-            <Badge variant="secondary" className="font-bold">
-              {leads.length} leads
-            </Badge>
-          </div>
+        {/* Message */}
+        <div className="space-y-2">
+          <Label htmlFor="message">Mensagem *</Label>
+          <Textarea
+            id="message"
+            value={formData.message}
+            onChange={(e) => setFormData({ ...formData, message: e.target.value })}
+            placeholder="Digite sua mensagem. Use {{nome}}, {{empresa}}, {{endereco}} para personalização."
+            rows={5}
+            required
+          />
+          <p className="text-xs text-muted-foreground">
+            Variáveis disponíveis: {"{{nome}}"}, {"{{empresa}}"}, {"{{endereco}}"}, {"{{telefone}}"}
+          </p>
+        </div>
 
-          {/* Campaign Name */}
-          <div className="space-y-2">
-            <Label htmlFor="name">Nome da Campanha *</Label>
-            <Input
-              id="name"
-              value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              placeholder="Ex: Prospecção Restaurantes SP"
-              required
-            />
-          </div>
-
-          {/* Template Selection */}
-          <div className="space-y-2">
-            <Label>Template (opcional)</Label>
-            <Select value={formData.template_id} onValueChange={handleTemplateChange}>
-              <SelectTrigger>
-                <SelectValue placeholder="Selecione um template ou escreva abaixo" />
-              </SelectTrigger>
-              <SelectContent>
-                {templates.length === 0 ? (
-                  <div className="p-2 text-sm text-muted-foreground text-center">
-                    Nenhum template disponível
-                  </div>
-                ) : (
-                  templates.map((template) => (
-                    <SelectItem key={template.id} value={template.id}>
-                      {template.name}
-                    </SelectItem>
-                  ))
-                )}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Test Mode Toggle */}
-          <div className="flex items-center justify-between rounded-lg border border-destructive/50 bg-destructive/5 p-4">
-            <div className="flex items-center gap-3">
-              <FlaskConical className="h-5 w-5 text-destructive" />
-              <div>
-                <Label className="text-destructive">Modo Teste</Label>
-                <p className="text-xs text-destructive/70">
-                  Envia para contato de teste, limite de 10 msgs
-                </p>
-              </div>
-            </div>
-            <Switch
-              checked={isTestMode}
-              onCheckedChange={setIsTestMode}
-              className="data-[state=checked]:bg-destructive"
-            />
-          </div>
-
-          {isTestMode && (
-            <TestModeBanner
-              testContactPhone={defaultTestContact?.phone}
-              maxMessages={10}
-              intervalSeconds={5}
-            />
-          )}
-
-          {/* Message */}
-          <div className="space-y-2">
-            <Label htmlFor="message">Mensagem *</Label>
-            <Textarea
-              id="message"
-              value={formData.message}
-              onChange={(e) => setFormData({ ...formData, message: e.target.value })}
-              placeholder="Digite sua mensagem. Use {{nome}}, {{empresa}}, {{endereco}} para personalização."
-              rows={5}
-              required
-            />
+        {/* Scheduling */}
+        <div className="flex items-center justify-between rounded-lg border p-4">
+          <div>
+            <Label>Enviar agora</Label>
             <p className="text-xs text-muted-foreground">
-              Variáveis disponíveis: {"{{nome}}"}, {"{{empresa}}"}, {"{{endereco}}"}, {"{{telefone}}"}
+              {formData.send_now ? 'A campanha será enviada imediatamente' : 'Agende para enviar depois'}
             </p>
           </div>
+          <Switch
+            checked={formData.send_now}
+            onCheckedChange={(checked) => setFormData({ ...formData, send_now: checked })}
+          />
+        </div>
 
-          {/* Scheduling */}
-          <div className="flex items-center justify-between rounded-lg border p-4">
-            <div>
-              <Label>Enviar agora</Label>
-              <p className="text-xs text-muted-foreground">
-                {formData.send_now ? 'A campanha será enviada imediatamente' : 'Agende para enviar depois'}
-              </p>
-            </div>
-            <Switch
-              checked={formData.send_now}
-              onCheckedChange={(checked) => setFormData({ ...formData, send_now: checked })}
-            />
-          </div>
-
-          {!formData.send_now && (
-            <div className="space-y-2">
-              <Label htmlFor="scheduled_at">Data e Hora do Envio</Label>
-              <Input
-                id="scheduled_at"
-                type="datetime-local"
-                value={formData.scheduled_at}
-                onChange={(e) => setFormData({ ...formData, scheduled_at: e.target.value })}
-              />
-            </div>
-          )}
-
-          {/* Send Limit */}
+        {!formData.send_now && (
           <div className="space-y-2">
-            <Label htmlFor="send_limit">Limite de Envios (opcional)</Label>
+            <Label htmlFor="scheduled_at">Data e Hora do Envio</Label>
             <Input
-              id="send_limit"
-              type="number"
-              value={formData.send_limit}
-              onChange={(e) => setFormData({ ...formData, send_limit: e.target.value })}
-              placeholder={`Máximo: ${leads.length}`}
-              max={leads.length}
+              id="scheduled_at"
+              type="datetime-local"
+              value={formData.scheduled_at}
+              onChange={(e) => setFormData({ ...formData, scheduled_at: e.target.value })}
             />
           </div>
+        )}
 
-          {/* Schedule Preview */}
-          {totalContacts > 0 && !isLoadingConfig && (
-            <CampaignSchedulePreview
-              totalContacts={totalContacts}
-              config={sendingConfig}
-            />
-          )}
+        {/* Send Limit */}
+        <div className="space-y-2">
+          <Label htmlFor="send_limit">Limite de Envios (opcional)</Label>
+          <Input
+            id="send_limit"
+            type="number"
+            value={formData.send_limit}
+            onChange={(e) => setFormData({ ...formData, send_limit: e.target.value })}
+            placeholder={`Máximo: ${leads.length}`}
+            max={leads.length}
+          />
+        </div>
 
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button type="button" variant="outline" onClick={handleClose}>
-              Cancelar
-            </Button>
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Criando Campanha...
-                </>
-              ) : (
-                <>
-                  <Send className="mr-2 h-4 w-4" />
-                  Iniciar Campanha
-                </>
-              )}
-            </Button>
-          </DialogFooter>
-        </form>
+        {/* Schedule Preview */}
+        {totalContacts > 0 && !isLoadingConfig && (
+          <CampaignSchedulePreview
+            totalContacts={totalContacts}
+            config={sendingConfig}
+          />
+        )}
+
+        <DialogFooter className="gap-2 sm:gap-0">
+          <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
+            Cancelar
+          </Button>
+          <Button type="submit" disabled={isSubmitting}>
+            {isSubmitting ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Criando...
+              </>
+            ) : (
+              <>
+                <Send className="mr-2 h-4 w-4" />
+                Criar Campanha
+              </>
+            )}
+          </Button>
+        </DialogFooter>
+      </form>
+    </>
+  );
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+        {showSuccess && createdCampaign ? <SuccessContent /> : <FormContent />}
       </DialogContent>
     </Dialog>
   );
