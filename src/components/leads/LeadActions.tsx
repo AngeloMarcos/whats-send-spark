@@ -25,6 +25,7 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import * as XLSX from 'xlsx';
+import { CreateCampaignModal } from './CreateCampaignModal';
 
 interface LeadActionsProps {
   leads: Lead[];
@@ -45,6 +46,7 @@ interface DuplicateAnalysis {
 
 export function LeadActions({ leads, selectedLeads }: LeadActionsProps) {
   const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [showCampaignModal, setShowCampaignModal] = useState(false);
   const [listName, setListName] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [saveMode, setSaveMode] = useState<'new' | 'existing'>('new');
@@ -380,18 +382,28 @@ export function LeadActions({ leads, selectedLeads }: LeadActionsProps) {
         </Button>
 
         <Button
-          onClick={() => {
-            toast({
-              title: 'Em breve',
-              description: 'Funcionalidade de criar campanha diretamente será implementada',
-            });
-          }}
+          onClick={() => setShowCampaignModal(true)}
           disabled={!hasSelection}
+          className="bg-green-600 hover:bg-green-700"
         >
           <Send className="mr-2 h-4 w-4" />
           Criar Campanha
+          {hasSelection && ` (${selectedItems.length})`}
         </Button>
       </div>
+
+      {/* Create Campaign Modal */}
+      <CreateCampaignModal
+        open={showCampaignModal}
+        onOpenChange={setShowCampaignModal}
+        leads={selectedItems.filter(l => l.phone)}
+        onCampaignCreated={(campaign) => {
+          toast({
+            title: '🚀 Campanha criada!',
+            description: `Você pode acompanhar o progresso na página de Campanhas`,
+          });
+        }}
+      />
 
       <Dialog open={showSaveDialog} onOpenChange={handleCloseDialog}>
         <DialogContent className="sm:max-w-[425px]">
