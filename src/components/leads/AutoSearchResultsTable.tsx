@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Phone, Star, MapPin, Globe, ExternalLink, Check } from 'lucide-react';
+import { Phone, Star, MapPin, Globe, ExternalLink, Check, Users, Mail } from 'lucide-react';
 import { Lead } from '@/hooks/useGooglePlaces';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -7,6 +7,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { SociosModal } from './SociosModal';
 
 interface AutoSearchResultsTableProps {
   leads: Lead[];
@@ -32,6 +33,12 @@ export function AutoSearchResultsTable({
   onSelectionChange,
   isLoading 
 }: AutoSearchResultsTableProps) {
+  const [sociosModal, setSociosModal] = useState<{ open: boolean; razaoSocial: string; socios: Lead['socios'] }>({
+    open: false,
+    razaoSocial: '',
+    socios: []
+  });
+
   const toggleLead = (placeId: string) => {
     const newSelected = new Set(selectedLeads);
     if (newSelected.has(placeId)) {
@@ -51,10 +58,8 @@ export function AutoSearchResultsTable({
   };
 
   const formatPhone = (phone: string) => {
-    // Clean the phone number
     const cleaned = phone.replace(/\D/g, '');
     
-    // Format for display
     if (cleaned.startsWith('55') && cleaned.length >= 12) {
       const ddd = cleaned.slice(2, 4);
       const rest = cleaned.slice(4);
@@ -67,10 +72,27 @@ export function AutoSearchResultsTable({
     return phone;
   };
 
+  const formatCNPJ = (cnpj: string) => {
+    const cleaned = cnpj.replace(/\D/g, '');
+    if (cleaned.length !== 14) return cnpj;
+    return `${cleaned.slice(0, 2)}.${cleaned.slice(2, 5)}.${cleaned.slice(5, 8)}/${cleaned.slice(8, 12)}-${cleaned.slice(12)}`;
+  };
+
   const getWhatsAppLink = (phone: string) => {
     const cleaned = phone.replace(/\D/g, '');
     return `https://wa.me/${cleaned}`;
   };
+
+  const openSociosModal = (lead: Lead) => {
+    setSociosModal({
+      open: true,
+      razaoSocial: lead.razaoSocial || lead.name,
+      socios: lead.socios || []
+    });
+  };
+
+  // Check if any lead has enrichment data
+  const hasEnrichmentData = leads.some(l => l.enriched !== undefined);
 
   if (isLoading) {
     return (
@@ -115,151 +137,260 @@ export function AutoSearchResultsTable({
   const leadsWithPhone = leads.filter(l => l.phone);
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2">
-            <Phone className="h-5 w-5" />
-            Resultados da Busca
-          </CardTitle>
-          <Badge 
-            variant="outline" 
-            className="bg-green-100 text-green-700 border-green-300 dark:bg-green-950 dark:text-green-400 dark:border-green-700"
-          >
-            <Phone className="h-3 w-3 mr-1" />
-            {leadsWithPhone.length} com telefone
-          </Badge>
-        </div>
-      </CardHeader>
-      <CardContent>
-        <div className="rounded-md border overflow-hidden">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-12">
-                  <Checkbox
-                    checked={selectedLeads.size === leads.length && leads.length > 0}
-                    onCheckedChange={toggleAll}
-                  />
-                </TableHead>
-                <TableHead>Empresa</TableHead>
-                <TableHead className="text-center">Avaliação</TableHead>
-                <TableHead className="min-w-[200px]">
-                  <span className="flex items-center gap-2">
-                    <Phone className="h-4 w-4 text-green-600" />
-                    Telefone
-                  </span>
-                </TableHead>
-                <TableHead>Endereço</TableHead>
-                <TableHead className="text-right">Ações</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {leads.map((lead) => (
-                <TableRow 
-                  key={lead.place_id}
-                  className={selectedLeads.has(lead.place_id) ? 'bg-primary/5' : ''}
+    <>
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <Phone className="h-5 w-5" />
+              Resultados da Busca
+            </CardTitle>
+            <div className="flex items-center gap-2">
+              {hasEnrichmentData && (
+                <Badge 
+                  variant="outline" 
+                  className="bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-950 dark:text-blue-400 dark:border-blue-700"
                 >
-                  <TableCell>
+                  <Users className="h-3 w-3 mr-1" />
+                  CNPJ Enriquecido
+                </Badge>
+              )}
+              <Badge 
+                variant="outline" 
+                className="bg-green-100 text-green-700 border-green-300 dark:bg-green-950 dark:text-green-400 dark:border-green-700"
+              >
+                <Phone className="h-3 w-3 mr-1" />
+                {leadsWithPhone.length} com telefone
+              </Badge>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="rounded-md border overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-12">
                     <Checkbox
-                      checked={selectedLeads.has(lead.place_id)}
-                      onCheckedChange={() => toggleLead(lead.place_id)}
+                      checked={selectedLeads.size === leads.length && leads.length > 0}
+                      onCheckedChange={toggleAll}
                     />
-                  </TableCell>
-                  <TableCell>
-                    <div className="space-y-1">
-                      <p className="font-medium line-clamp-1">{lead.name}</p>
-                      <Badge variant="secondary" className="text-xs">
-                        {lead.category}
-                      </Badge>
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-center">
-                    {lead.rating ? (
-                      <div className="flex items-center justify-center gap-1">
-                        <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                        <span className="font-medium">{lead.rating}</span>
-                        {lead.reviews_count && (
-                          <span className="text-xs text-muted-foreground">
-                            ({lead.reviews_count})
-                          </span>
+                  </TableHead>
+                  <TableHead>Empresa</TableHead>
+                  {hasEnrichmentData && (
+                    <>
+                      <TableHead>CNPJ</TableHead>
+                      <TableHead className="text-center">Situação</TableHead>
+                      <TableHead className="text-center">Sócios</TableHead>
+                    </>
+                  )}
+                  <TableHead className="text-center">Avaliação</TableHead>
+                  <TableHead className="min-w-[200px]">
+                    <span className="flex items-center gap-2">
+                      <Phone className="h-4 w-4 text-green-600" />
+                      Telefone
+                    </span>
+                  </TableHead>
+                  {hasEnrichmentData && (
+                    <TableHead>Email Oficial</TableHead>
+                  )}
+                  <TableHead>Endereço</TableHead>
+                  <TableHead className="text-right">Ações</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {leads.map((lead) => (
+                  <TableRow 
+                    key={lead.place_id}
+                    className={selectedLeads.has(lead.place_id) ? 'bg-primary/5' : ''}
+                  >
+                    <TableCell>
+                      <Checkbox
+                        checked={selectedLeads.has(lead.place_id)}
+                        onCheckedChange={() => toggleLead(lead.place_id)}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <div className="space-y-1">
+                        <p className="font-medium line-clamp-1">{lead.name}</p>
+                        <div className="flex flex-wrap gap-1">
+                          <Badge variant="secondary" className="text-xs">
+                            {lead.category}
+                          </Badge>
+                          {/* Indicator badges */}
+                          {lead.email_oficial && (
+                            <Badge variant="outline" className="text-xs text-purple-600 border-purple-200 dark:text-purple-400 dark:border-purple-700">
+                              📧
+                            </Badge>
+                          )}
+                          {lead.socios && lead.socios.length > 0 && (
+                            <Badge variant="outline" className="text-xs text-blue-600 border-blue-200 dark:text-blue-400 dark:border-blue-700">
+                              👥 {lead.socios.length}
+                            </Badge>
+                          )}
+                          {lead.telefones_oficiais && lead.telefones_oficiais.length > 0 && (
+                            <Badge variant="outline" className="text-xs text-orange-600 border-orange-200 dark:text-orange-400 dark:border-orange-700">
+                              📞 {lead.telefones_oficiais.length}
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    </TableCell>
+                    
+                    {hasEnrichmentData && (
+                      <>
+                        <TableCell>
+                          {lead.cnpj ? (
+                            <span className="font-mono text-xs">{formatCNPJ(lead.cnpj)}</span>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          {lead.situacao_cadastral ? (
+                            <Badge 
+                              className={
+                                lead.situacao_cadastral.toUpperCase().includes('ATIVA')
+                                  ? 'bg-green-100 text-green-700 border-green-300 dark:bg-green-950 dark:text-green-400'
+                                  : 'bg-red-100 text-red-700 border-red-300 dark:bg-red-950 dark:text-red-400'
+                              }
+                            >
+                              {lead.situacao_cadastral.toUpperCase().includes('ATIVA') ? 'Ativa' : 'Inativa'}
+                            </Badge>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          {lead.socios && lead.socios.length > 0 ? (
+                            <Button 
+                              variant="ghost" 
+                              size="sm"
+                              className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950"
+                              onClick={() => openSociosModal(lead)}
+                            >
+                              <Users className="h-3 w-3 mr-1" />
+                              Ver {lead.socios.length}
+                            </Button>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">—</span>
+                          )}
+                        </TableCell>
+                      </>
+                    )}
+
+                    <TableCell className="text-center">
+                      {lead.rating ? (
+                        <div className="flex items-center justify-center gap-1">
+                          <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                          <span className="font-medium">{lead.rating}</span>
+                          {lead.reviews_count && (
+                            <span className="text-xs text-muted-foreground">
+                              ({lead.reviews_count})
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground text-xs">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {lead.phone ? (
+                        <div className="flex items-center gap-2">
+                          <Badge 
+                            className="bg-green-100 text-green-800 border-green-300 font-bold text-sm px-3 py-1.5 dark:bg-green-950 dark:text-green-400 dark:border-green-700"
+                          >
+                            <Phone className="h-3.5 w-3.5 mr-1.5" />
+                            {formatPhone(lead.phone)}
+                          </Badge>
+                          <a
+                            href={getWhatsAppLink(lead.phone)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center justify-center h-8 w-8 rounded-full bg-green-500 hover:bg-green-600 transition-colors"
+                            title="Abrir no WhatsApp"
+                          >
+                            <WhatsAppIcon className="h-4 w-4 text-white" />
+                          </a>
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground text-xs">Sem telefone</span>
+                      )}
+                    </TableCell>
+
+                    {hasEnrichmentData && (
+                      <TableCell>
+                        {lead.email_oficial ? (
+                          <Badge 
+                            variant="outline"
+                            className="bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950 dark:text-purple-400 dark:border-purple-700 max-w-[180px] truncate"
+                          >
+                            <Mail className="h-3 w-3 mr-1 shrink-0" />
+                            <span className="truncate">{lead.email_oficial}</span>
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground text-xs">—</span>
+                        )}
+                      </TableCell>
+                    )}
+
+                    <TableCell>
+                      <p className="text-sm text-muted-foreground line-clamp-2 max-w-[250px]">
+                        {lead.address}
+                      </p>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        {lead.website && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            asChild
+                          >
+                            <a href={lead.website} target="_blank" rel="noopener noreferrer" title="Visitar site">
+                              <Globe className="h-4 w-4" />
+                            </a>
+                          </Button>
+                        )}
+                        {lead.maps_url && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            asChild
+                          >
+                            <a href={lead.maps_url} target="_blank" rel="noopener noreferrer" title="Ver no Google Maps">
+                              <ExternalLink className="h-4 w-4" />
+                            </a>
+                          </Button>
                         )}
                       </div>
-                    ) : (
-                      <span className="text-muted-foreground text-xs">—</span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    {lead.phone ? (
-                      <div className="flex items-center gap-2">
-                        <Badge 
-                          className="bg-green-100 text-green-800 border-green-300 font-bold text-sm px-3 py-1.5 dark:bg-green-950 dark:text-green-400 dark:border-green-700"
-                        >
-                          <Phone className="h-3.5 w-3.5 mr-1.5" />
-                          {formatPhone(lead.phone)}
-                        </Badge>
-                        <a
-                          href={getWhatsAppLink(lead.phone)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center justify-center h-8 w-8 rounded-full bg-green-500 hover:bg-green-600 transition-colors"
-                          title="Abrir no WhatsApp"
-                        >
-                          <WhatsAppIcon className="h-4 w-4 text-white" />
-                        </a>
-                      </div>
-                    ) : (
-                      <span className="text-muted-foreground text-xs">Sem telefone</span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <p className="text-sm text-muted-foreground line-clamp-2 max-w-[250px]">
-                      {lead.address}
-                    </p>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      {lead.website && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
-                          asChild
-                        >
-                          <a href={lead.website} target="_blank" rel="noopener noreferrer" title="Visitar site">
-                            <Globe className="h-4 w-4" />
-                          </a>
-                        </Button>
-                      )}
-                      {lead.maps_url && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
-                          asChild
-                        >
-                          <a href={lead.maps_url} target="_blank" rel="noopener noreferrer" title="Ver no Google Maps">
-                            <ExternalLink className="h-4 w-4" />
-                          </a>
-                        </Button>
-                      )}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-
-        {selectedLeads.size > 0 && (
-          <div className="mt-4 p-3 bg-primary/5 rounded-lg flex items-center justify-between">
-            <span className="text-sm">
-              <Check className="h-4 w-4 inline mr-1 text-green-600" />
-              <strong>{selectedLeads.size}</strong> empresa(s) selecionada(s)
-            </span>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </div>
-        )}
-      </CardContent>
-    </Card>
+
+          {selectedLeads.size > 0 && (
+            <div className="mt-4 p-3 bg-primary/5 rounded-lg flex items-center justify-between">
+              <span className="text-sm">
+                <Check className="h-4 w-4 inline mr-1 text-green-600" />
+                <strong>{selectedLeads.size}</strong> empresa(s) selecionada(s)
+              </span>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Socios Modal */}
+      <SociosModal 
+        open={sociosModal.open}
+        onOpenChange={(open) => setSociosModal(prev => ({ ...prev, open }))}
+        razaoSocial={sociosModal.razaoSocial}
+        socios={sociosModal.socios || []}
+      />
+    </>
   );
 }

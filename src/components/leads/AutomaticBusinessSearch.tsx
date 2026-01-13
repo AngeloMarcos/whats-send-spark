@@ -1,11 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Search, MapPin, Building2, Loader2, Sparkles } from 'lucide-react';
+import { Search, MapPin, Building2, Loader2, Sparkles, Users, Mail, Phone } from 'lucide-react';
 import { useGooglePlaces, Lead } from '@/hooks/useGooglePlaces';
 import { useIBGELocalidades, Localidade } from '@/hooks/useIBGELocalidades';
+import { useEnrichCNPJ } from '@/hooks/useEnrichCNPJ';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -43,9 +46,18 @@ export function AutomaticBusinessSearch() {
   const [openCityPopover, setOpenCityPopover] = useState(false);
   const [cityResults, setCityResults] = useState<Localidade[]>([]);
   const [selectedLeads, setSelectedLeads] = useState<Set<string>>(new Set());
+  
+  // Enrichment options
+  const [enrichEnabled, setEnrichEnabled] = useState(true);
+  const [enrichedLeads, setEnrichedLeads] = useState<Lead[]>([]);
 
   const { searchLocalidades, isLoading: loadingCidades } = useIBGELocalidades();
-  const { leads, isLoading, error, metrics, searchPlaces } = useGooglePlaces();
+  const { leads: rawLeads, isLoading, error, metrics, searchPlaces } = useGooglePlaces();
+  const { enriquecerLeads, isEnriching, progress, calculateMetrics } = useEnrichCNPJ();
+
+  // Use enriched leads if available, otherwise use raw leads
+  const leads = enrichedLeads.length > 0 ? enrichedLeads : rawLeads;
+  const enrichmentMetrics = enrichedLeads.length > 0 ? calculateMetrics(enrichedLeads) : null;
 
   // Debounced city search
   useEffect(() => {
@@ -72,13 +84,21 @@ export function AutomaticBusinessSearch() {
     if (!cidadeSelecionada || !tipoNegocio.trim()) return;
 
     setSelectedLeads(new Set());
-    await searchPlaces({
+    setEnrichedLeads([]);
+    
+    const results = await searchPlaces({
       query: tipoNegocio,
       location: `${cidadeSelecionada.nome}, ${cidadeSelecionada.uf}, Brasil`,
       radius: parseInt(raio),
       maxResults: 100,
       onlyWithPhone: true,
     });
+
+    // Auto-enrich if enabled
+    if (enrichEnabled && results && results.length > 0) {
+      const enriched = await enriquecerLeads(results, false);
+      setEnrichedLeads(enriched);
+    }
   };
 
   const canSearch = cidadeSelecionada && tipoNegocio.trim().length > 0;
@@ -222,10 +242,25 @@ export function AutomaticBusinessSearch() {
             </div>
           </div>
 
+          {/* Enrichment Options */}
+          <div className="space-y-3 border-t pt-4">
+            <div className="flex items-center space-x-2">
+              <Checkbox 
+                id="enrich" 
+                checked={enrichEnabled} 
+                onCheckedChange={(checked) => setEnrichEnabled(checked === true)}
+              />
+              <Label htmlFor="enrich" className="flex items-center gap-2 cursor-pointer text-sm">
+                <Users className="h-4 w-4 text-blue-600" />
+                Enriquecer com dados CNPJ (sócios, emails, telefones oficiais)
+              </Label>
+            </div>
+          </div>
+
           {/* Search Button */}
           <Button 
             onClick={handleSearch} 
-            disabled={!canSearch || isLoading}
+            disabled={!canSearch || isLoading || isEnriching}
             className="w-full md:w-auto"
             size="lg"
           >
@@ -234,6 +269,11 @@ export function AutomaticBusinessSearch() {
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 Buscando empresas...
               </>
+            ) : isEnriching ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Enriquecendo dados...
+              </>
             ) : (
               <>
                 <Sparkles className="mr-2 h-4 w-4" />
@@ -241,6 +281,22 @@ export function AutomaticBusinessSearch() {
               </>
             )}
           </Button>
+
+          {/* Enrichment Progress */}
+          {isEnriching && (
+            <Alert className="border-blue-200 bg-blue-50/50 dark:bg-blue-950/20 dark:border-blue-800">
+              <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+              <AlertDescription className="ml-2">
+                <div className="space-y-2">
+                  <p className="text-sm">
+                    Enriquecendo dados: <strong>{progress.current}</strong> de <strong>{progress.total}</strong>
+                  </p>
+                  <p className="text-xs text-muted-foreground">{progress.status}</p>
+                  <Progress value={(progress.current / progress.total) * 100} className="h-2" />
+                </div>
+              </AlertDescription>
+            </Alert>
+          )}
         </CardContent>
       </Card>
 
@@ -251,7 +307,7 @@ export function AutomaticBusinessSearch() {
         </Alert>
       )}
 
-      {/* Metrics Cards */}
+      {/* Search Metrics Cards */}
       {metrics && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <Card>
@@ -305,6 +361,67 @@ export function AutomaticBusinessSearch() {
                 <div>
                   <p className="text-2xl font-bold">{metrics.processing_time.toFixed(1)}s</p>
                   <p className="text-xs text-muted-foreground">Tempo</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Enrichment Metrics Cards */}
+      {enrichmentMetrics && enrichmentMetrics.enriched > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <Card className="border-blue-200 bg-blue-50/50 dark:bg-blue-950/20 dark:border-blue-800">
+            <CardContent className="pt-4">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-lg bg-blue-500/20 flex items-center justify-center">
+                  <span className="text-lg">🏢</span>
+                </div>
+                <div>
+                  <p className="text-2xl font-bold text-blue-700 dark:text-blue-400">{enrichmentMetrics.enriched}</p>
+                  <p className="text-xs text-blue-600 dark:text-blue-500 font-medium">Enriquecidos</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          
+          <Card className="border-purple-200 bg-purple-50/50 dark:bg-purple-950/20 dark:border-purple-800">
+            <CardContent className="pt-4">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-lg bg-purple-500/20 flex items-center justify-center">
+                  <Mail className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold text-purple-700 dark:text-purple-400">{enrichmentMetrics.withEmail}</p>
+                  <p className="text-xs text-purple-600 dark:text-purple-500 font-medium">Com Email</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          
+          <Card className="border-indigo-200 bg-indigo-50/50 dark:bg-indigo-950/20 dark:border-indigo-800">
+            <CardContent className="pt-4">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-lg bg-indigo-500/20 flex items-center justify-center">
+                  <Users className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold text-indigo-700 dark:text-indigo-400">{enrichmentMetrics.totalSocios}</p>
+                  <p className="text-xs text-indigo-600 dark:text-indigo-500 font-medium">Total Sócios</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          
+          <Card className="border-orange-200 bg-orange-50/50 dark:bg-orange-950/20 dark:border-orange-800">
+            <CardContent className="pt-4">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-lg bg-orange-500/20 flex items-center justify-center">
+                  <Phone className="h-5 w-5 text-orange-600 dark:text-orange-400" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold text-orange-700 dark:text-orange-400">{enrichmentMetrics.phonesFound}</p>
+                  <p className="text-xs text-orange-600 dark:text-orange-500 font-medium">Tel. Oficiais</p>
                 </div>
               </div>
             </CardContent>

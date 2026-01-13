@@ -123,6 +123,12 @@ export function LeadActions({ leads, selectedLeads }: LeadActionsProps) {
     }
   };
 
+  const formatCNPJ = (cnpj: string) => {
+    const cleaned = cnpj.replace(/\D/g, '');
+    if (cleaned.length !== 14) return cnpj;
+    return `${cleaned.slice(0, 2)}.${cleaned.slice(2, 5)}.${cleaned.slice(5, 8)}/${cleaned.slice(8, 12)}-${cleaned.slice(12)}`;
+  };
+
   const handleExportExcel = () => {
     if (!hasSelection) return;
 
@@ -136,6 +142,18 @@ export function LeadActions({ leads, selectedLeads }: LeadActionsProps) {
       Website: lead.website || '',
       Latitude: lead.latitude || '',
       Longitude: lead.longitude || '',
+      // CNPJ enrichment data
+      CNPJ: lead.cnpj ? formatCNPJ(lead.cnpj) : '',
+      'Razão Social': lead.razaoSocial || '',
+      'Nome Fantasia': lead.nomeFantasia || '',
+      'Email Oficial': lead.email_oficial || '',
+      'Telefones Oficiais': lead.telefones_oficiais?.join(' | ') || '',
+      'Situação Cadastral': lead.situacao_cadastral || '',
+      'Porte Empresa': lead.porte || '',
+      'Capital Social': lead.capital_social ? `R$ ${lead.capital_social.toLocaleString('pt-BR')}` : '',
+      'Qtd Sócios': lead.socios?.length || 0,
+      'Nomes Sócios': lead.socios?.map(s => s.nome).join(' | ') || '',
+      'Qualificações Sócios': lead.socios?.map(s => s.qualificacao).join(' | ') || '',
     }));
 
     const ws = XLSX.utils.json_to_sheet(data);
@@ -160,6 +178,14 @@ export function LeadActions({ leads, selectedLeads }: LeadActionsProps) {
       Avaliação: lead.rating || '',
       'Nº Avaliações': lead.reviews_count || '',
       Website: lead.website || '',
+      // CNPJ enrichment data
+      CNPJ: lead.cnpj ? formatCNPJ(lead.cnpj) : '',
+      'Razão Social': lead.razaoSocial || '',
+      'Email Oficial': lead.email_oficial || '',
+      'Telefones Oficiais': lead.telefones_oficiais?.join(' | ') || '',
+      'Situação Cadastral': lead.situacao_cadastral || '',
+      'Qtd Sócios': lead.socios?.length || 0,
+      'Nomes Sócios': lead.socios?.map(s => s.nome).join(' | ') || '',
     }));
 
     const ws = XLSX.utils.json_to_sheet(data);

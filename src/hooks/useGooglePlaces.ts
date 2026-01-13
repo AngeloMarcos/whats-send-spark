@@ -2,6 +2,15 @@ import { useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
+export interface Socio {
+  nome: string;
+  qualificacao: string;
+  dataEntrada?: string;
+  tipo: 'PF' | 'PJ';
+  telefonesEncontrados?: string[];
+  fontesTelefones?: string[];
+}
+
 export interface Lead {
   name: string;
   phone: string;
@@ -15,6 +24,19 @@ export interface Lead {
   longitude: number | null;
   place_id: string;
   maps_url?: string;
+  
+  // CNPJ enrichment fields
+  cnpj?: string;
+  razaoSocial?: string;
+  nomeFantasia?: string;
+  email_oficial?: string;
+  telefones_oficiais?: string[];
+  situacao_cadastral?: string;
+  porte?: string;
+  capital_social?: number;
+  socios?: Socio[];
+  enriched?: boolean;
+  enrichmentError?: string;
 }
 
 export interface SearchMetrics {
