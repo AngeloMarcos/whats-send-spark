@@ -1,3 +1,5 @@
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -154,6 +156,43 @@ Deno.serve(async (req) => {
   }
 
   try {
+    // Authentication check - verify user is logged in
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      console.error('Missing authorization header');
+      return new Response(
+        JSON.stringify({ success: false, error: 'Autenticação necessária' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY');
+    
+    if (!supabaseUrl || !supabaseAnonKey) {
+      console.error('Supabase configuration missing');
+      return new Response(
+        JSON.stringify({ success: false, error: 'Configuração do servidor inválida' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: authHeader } }
+    });
+
+    const { data: { user }, error: authError } = await supabaseClient.auth.getUser();
+    
+    if (authError || !user) {
+      console.error('Authentication failed:', authError?.message || 'No user found');
+      return new Response(
+        JSON.stringify({ success: false, error: 'Usuário não autenticado' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    console.log(`Authenticated user: ${user.id}`);
+
     const { query, location, radius = 5000, maxResults = 50, minRating = 0, onlyWithPhone = true } = await req.json();
 
     if (!query || !location) {
@@ -172,7 +211,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    console.log(`Searching: "${query}" in "${location}" with radius ${radius}m`);
+    console.log(`User ${user.id} searching: "${query}" in "${location}" with radius ${radius}m`);
 
     // Step 1: Geocode the location to get coordinates
     const geocodeUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(location)}&language=pt-BR&key=${apiKey}`;
@@ -303,7 +342,7 @@ Deno.serve(async (req) => {
     }
 
     const processingTime = (Date.now() - startTime) / 1000;
-    console.log(`Extracted ${leads.length} leads in ${processingTime}s`);
+    console.log(`User ${user.id} extracted ${leads.length} leads in ${processingTime}s`);
 
     return new Response(
       JSON.stringify({
