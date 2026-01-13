@@ -37,6 +37,7 @@ export interface Lead {
   socios?: Socio[];
   enriched?: boolean;
   enrichmentError?: string;
+  cnpjFoundByName?: boolean;
 }
 
 export interface SearchMetrics {

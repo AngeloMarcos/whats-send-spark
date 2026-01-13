@@ -23,3 +23,6 @@ verify_jwt = false
 
 [functions.search-partner-phones]
 verify_jwt = true
+
+[functions.search-cnpj-by-name]
+verify_jwt = true
