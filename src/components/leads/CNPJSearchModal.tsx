@@ -14,6 +14,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useToast } from '@/hooks/use-toast';
 import { useBrasilAPI, BrasilAPIResponse } from '@/hooks/useBrasilAPI';
 import { supabase } from '@/integrations/supabase/client';
+import { buildWhatsAppUrl } from '@/lib/phoneUtils';
 import {
   Building,
   Search,
@@ -151,12 +152,10 @@ export function CNPJSearchModal({ open, onOpenChange, onLeadSaved }: CNPJSearchM
   };
 
   const openWhatsApp = (phone: string, companyName: string) => {
-    const cleaned = phone.replace(/\D/g, '');
-    const formattedPhone = cleaned.startsWith('55') ? cleaned : `55${cleaned}`;
-    const message = encodeURIComponent(
-      `Olá ${companyName}! Vi sua empresa e gostaria de conversar.`
-    );
-    window.open(`https://wa.me/${formattedPhone}?text=${message}`, '_blank');
+    const url = buildWhatsAppUrl(phone, `Olá ${companyName}! Vi sua empresa e gostaria de conversar.`);
+    if (url) {
+      window.open(url, '_blank');
+    }
   };
 
   const handleSaveLead = async () => {

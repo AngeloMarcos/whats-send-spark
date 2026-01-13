@@ -131,23 +131,48 @@ export function isValidBrazilianPhone(phone: string): boolean {
 }
 
 /**
- * Generate WhatsApp API direct link
+ * Build WhatsApp URL in official wa.me format
+ * @param rawPhone - Phone in any format
+ * @param message - Optional message (will be URL encoded)
+ * @returns URL in format https://wa.me/55XXXXXXXXXX?text=...
  */
-export function generateWhatsAppApiLink(phone: string): string {
-  const international = toInternationalFormat(phone);
-  if (!international) return '';
-  return `https://api.whatsapp.com/send?phone=${international}`;
+export function buildWhatsAppUrl(rawPhone: string, message?: string): string {
+  // 1) Clean phone (remove everything except digits)
+  let digits = rawPhone.replace(/\D/g, '');
+  
+  // 2) Remove 55 if already present to avoid duplication
+  if (digits.startsWith('55') && digits.length > 11) {
+    digits = digits.substring(2);
+  }
+  
+  // 3) Validate minimum length (10 or 11 digits)
+  if (digits.length < 10 || digits.length > 11) {
+    return '';
+  }
+  
+  // 4) Build URL in wa.me format with country code 55
+  const baseUrl = `https://wa.me/55${digits}`;
+  
+  if (message) {
+    return `${baseUrl}?text=${encodeURIComponent(message)}`;
+  }
+  
+  return baseUrl;
 }
 
 /**
- * Generate custom WhatsApp link with company name
+ * Generate WhatsApp API direct link (uses wa.me format)
+ */
+export function generateWhatsAppApiLink(phone: string): string {
+  return buildWhatsAppUrl(phone);
+}
+
+/**
+ * Generate custom WhatsApp link with company name (uses wa.me format)
  */
 export function generateWhatsAppCustomLink(phone: string, companyName?: string): string {
-  const international = toInternationalFormat(phone);
-  if (!international) return '';
-  
-  const encodedName = encodeURIComponent(companyName || '');
-  return `https://api.whatsapp.com/send?phone=${international}&text=Olá ${encodedName}`;
+  const message = companyName ? `Olá ${companyName}` : undefined;
+  return buildWhatsAppUrl(phone, message);
 }
 
 /**

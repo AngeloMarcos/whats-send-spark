@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Button } from '@/components/ui/button';
+import { buildWhatsAppUrl, cleanPhone, isValidBrazilianPhone } from '@/lib/phoneUtils';
 
 interface SociosModalProps {
   open: boolean;
@@ -34,28 +35,19 @@ export function SociosModal({ open, onOpenChange, razaoSocial, socios }: SociosM
     }
   };
 
-  // Limpa o telefone deixando apenas dígitos
-  const limparTelefone = (phone: string): string => {
-    return phone.replace(/\D/g, '');
-  };
-
   // Valida se o telefone tem pelo menos 10 dígitos (DDD + número)
   const telefoneValido = (phone: string): boolean => {
-    const limpo = limparTelefone(phone);
-    return limpo.length >= 10;
+    return isValidBrazilianPhone(phone);
   };
 
   // Gera link do WhatsApp simples (sem mensagem)
   const getWhatsAppLink = (phone: string) => {
-    const cleaned = limparTelefone(phone);
-    return `https://wa.me/55${cleaned}`;
+    return buildWhatsAppUrl(phone);
   };
 
   // Gera link do WhatsApp com mensagem de abordagem
   const getWhatsAppLinkComMensagem = (phone: string, nomeEmpresa: string) => {
-    const cleaned = limparTelefone(phone);
-    const mensagem = encodeURIComponent(MENSAGEM_PADRAO(nomeEmpresa));
-    return `https://wa.me/55${cleaned}?text=${mensagem}`;
+    return buildWhatsAppUrl(phone, MENSAGEM_PADRAO(nomeEmpresa));
   };
 
   // Obtém o primeiro telefone válido do sócio (priorizando celulares)
