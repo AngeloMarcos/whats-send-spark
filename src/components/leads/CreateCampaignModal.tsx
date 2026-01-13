@@ -160,7 +160,7 @@ export function CreateCampaignModal({
           name: `Campanha: ${formData.name}`,
           description: `Lista criada automaticamente para campanha "${formData.name}" - ${leads.length} contatos`,
           user_id: user.id,
-          list_type: 'campaign_auto',
+          list_type: 'local',
           contact_count: 0,
         })
         .select()
