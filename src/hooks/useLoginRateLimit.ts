@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 
-const MAX_ATTEMPTS = 5;
-const WINDOW_MS = 15 * 60 * 1000; // 15 minutes
-const BLOCK_DURATION_MS = 15 * 60 * 1000; // 15 minutes block
+const MAX_ATTEMPTS = 30;
+const WINDOW_MS = 30 * 60 * 1000; // 30 minutes window
+const BLOCK_DURATION_MS = 5 * 60 * 1000; // 5 minutes block
 const STORAGE_KEY = 'login_rate_limit';
 
 interface RateLimitData {
