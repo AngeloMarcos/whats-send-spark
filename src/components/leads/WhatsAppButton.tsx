@@ -2,6 +2,7 @@ import { MessageCircle, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { buildWhatsAppUrl, formatPhoneDisplay } from '@/lib/phoneUtils';
 
 interface WhatsAppButtonProps {
   phone: string;
@@ -20,16 +21,15 @@ export function WhatsAppButton({
   size = 'sm',
   className,
 }: WhatsAppButtonProps) {
-  const cleanedPhone = internationalPhone || phone.replace(/\D/g, '');
-  const phoneWithCountry = cleanedPhone.startsWith('55') ? cleanedPhone : `55${cleanedPhone}`;
-  
-  const whatsappUrl = companyName
-    ? `https://api.whatsapp.com/send?phone=${phoneWithCountry}&text=${encodeURIComponent(`Olá ${companyName}`)}`
-    : `https://api.whatsapp.com/send?phone=${phoneWithCountry}`;
+  const phoneToUse = internationalPhone || phone;
+  const message = companyName ? `Olá ${companyName}` : undefined;
+  const whatsappUrl = buildWhatsAppUrl(phoneToUse, message);
 
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
+    if (whatsappUrl) {
+      window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
+    }
   };
 
   const sizeClasses = {
@@ -63,7 +63,7 @@ export function WhatsAppButton({
             </Button>
           </TooltipTrigger>
           <TooltipContent>
-            <p>Abrir WhatsApp: {phone}</p>
+            <p>Abrir WhatsApp: {formatPhoneDisplay(phone)}</p>
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
@@ -98,7 +98,7 @@ export function WhatsAppButton({
       )}
     >
       <MessageCircle className={iconSizes[size]} />
-      <span>{phone}</span>
+      <span>{formatPhoneDisplay(phone)}</span>
       <ExternalLink className="h-3 w-3" />
     </Button>
   );

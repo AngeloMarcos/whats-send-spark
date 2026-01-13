@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { SociosModal } from './SociosModal';
+import { buildWhatsAppUrl, cleanPhone, isValidBrazilianPhone } from '@/lib/phoneUtils';
 
 interface AutoSearchResultsTableProps {
   leads: Lead[];
@@ -84,14 +85,11 @@ export function AutoSearchResultsTable({
   };
 
   const getWhatsAppLink = (phone: string) => {
-    const cleaned = phone.replace(/\D/g, '');
-    return `https://wa.me/${cleaned}`;
+    return buildWhatsAppUrl(phone);
   };
 
   const getWhatsAppLinkComMensagem = (phone: string, nomeEmpresa: string) => {
-    const cleaned = phone.replace(/\D/g, '');
-    const mensagem = encodeURIComponent(MENSAGEM_PADRAO(nomeEmpresa));
-    return `https://wa.me/55${cleaned}?text=${mensagem}`;
+    return buildWhatsAppUrl(phone, MENSAGEM_PADRAO(nomeEmpresa));
   };
 
   // Obtém o primeiro telefone válido de um sócio PF
@@ -105,8 +103,7 @@ export function AutoSearchResultsTable({
       // Priorizar celulares
       for (let i = 0; i < socio.telefonesEncontrados.length; i++) {
         const tel = socio.telefonesEncontrados[i];
-        const cleaned = tel.replace(/\D/g, '');
-        if (cleaned.length >= 10 && socio.tiposTelefones?.[i] === 'celular') {
+        if (isValidBrazilianPhone(tel) && socio.tiposTelefones?.[i] === 'celular') {
           return {
             telefone: tel,
             nomeSocio: socio.nome,
@@ -117,8 +114,7 @@ export function AutoSearchResultsTable({
       
       // Se não encontrou celular, pegar qualquer telefone válido
       for (const tel of socio.telefonesEncontrados) {
-        const cleaned = tel.replace(/\D/g, '');
-        if (cleaned.length >= 10) {
+        if (isValidBrazilianPhone(tel)) {
           return {
             telefone: tel,
             nomeSocio: socio.nome,
