@@ -155,33 +155,46 @@ export function useEnrichCNPJ() {
     return numero;
   }, []);
 
-  // Search partner phones via Google Custom Search
+  // Search partner phones via multi-layer edge function
   const buscarTelefonesSocio = useCallback(async (
     nomeSocio: string,
     cidade: string,
-    uf?: string
-  ): Promise<{ telefones: string[], fontes: string[] }> => {
+    uf?: string,
+    empresaNome?: string,
+    empresaCNPJ?: string
+  ): Promise<{ 
+    telefones: string[], 
+    fontes: string[], 
+    confiabilidades: string[],
+    tipos: string[]
+  }> => {
     try {
-      const { data, error } = await supabase.functions.invoke('search-partner-phones', {
+      const { data, error } = await supabase.functions.invoke('search-socio-phones-v2', {
         body: { 
-          partnerName: nomeSocio, 
-          city: cidade,
-          state: uf
+          socioNome: nomeSocio, 
+          cidade,
+          uf,
+          empresaNome: empresaNome || '',
+          empresaCNPJ: empresaCNPJ || ''
         }
       });
 
       if (error) {
         console.error('Error searching partner phones:', error);
-        return { telefones: [], fontes: [] };
+        return { telefones: [], fontes: [], confiabilidades: [], tipos: [] };
       }
 
+      // Extract data from the new response format
+      const telefones = data?.telefones || [];
       return {
-        telefones: data?.phones || [],
-        fontes: data?.sources || []
+        telefones: telefones.map((t: any) => t.telefone),
+        fontes: telefones.map((t: any) => t.urlFonte || t.fonte),
+        confiabilidades: telefones.map((t: any) => t.confiabilidade),
+        tipos: telefones.map((t: any) => t.tipo)
       };
     } catch (error) {
       console.error('Error in buscarTelefonesSocio:', error);
-      return { telefones: [], fontes: [] };
+      return { telefones: [], fontes: [], confiabilidades: [], tipos: [] };
     }
   }, []);
 
@@ -277,24 +290,28 @@ export function useEnrichCNPJ() {
               setProgress({ 
                 current: i + 1, 
                 total: leads.length, 
-                status: `📞 Buscando telefone: ${socio.nome.substring(0, 20)}...`,
+                status: `📞 Buscando telefone (multi-camadas): ${socio.nome.substring(0, 20)}...`,
                 step: 'searching_phones'
               });
               
-              const { telefones, fontes } = await buscarTelefonesSocio(
+              const { telefones, fontes, confiabilidades, tipos } = await buscarTelefonesSocio(
                 socio.nome,
                 cnpjData.municipio || '',
-                cnpjData.uf || ''
+                cnpjData.uf || '',
+                cnpjData.nome_fantasia || cnpjData.razao_social || lead.name,
+                cnpjData.cnpj || ''
               );
               
               socio.telefonesEncontrados = telefones;
               socio.fontesTelefones = fontes;
+              socio.confiabilidadesTelefones = confiabilidades;
+              socio.tiposTelefones = tipos;
               
               // Delay between phone searches to avoid rate limiting
               if (telefones.length > 0) {
-                await new Promise(resolve => setTimeout(resolve, 1500));
+                await new Promise(resolve => setTimeout(resolve, 1000));
               } else {
-                await new Promise(resolve => setTimeout(resolve, 500));
+                await new Promise(resolve => setTimeout(resolve, 300));
               }
             }
             
@@ -367,24 +384,28 @@ export function useEnrichCNPJ() {
                 setProgress({ 
                   current: i + 1, 
                   total: leads.length, 
-                  status: `📞 Buscando telefone: ${socio.nome.substring(0, 20)}...`,
+                  status: `📞 Buscando telefone (multi-camadas): ${socio.nome.substring(0, 20)}...`,
                   step: 'searching_phones'
                 });
                 
-                const { telefones, fontes } = await buscarTelefonesSocio(
+                const { telefones, fontes, confiabilidades, tipos } = await buscarTelefonesSocio(
                   socio.nome,
                   data.municipio || '',
-                  data.uf || ''
+                  data.uf || '',
+                  data.nome_fantasia || data.razao_social || lead.name,
+                  data.cnpj || ''
                 );
                 
                 socio.telefonesEncontrados = telefones;
                 socio.fontesTelefones = fontes;
+                socio.confiabilidadesTelefones = confiabilidades;
+                socio.tiposTelefones = tipos;
                 
                 // Delay between phone searches
                 if (telefones.length > 0) {
-                  await new Promise(resolve => setTimeout(resolve, 1500));
+                  await new Promise(resolve => setTimeout(resolve, 1000));
                 } else {
-                  await new Promise(resolve => setTimeout(resolve, 500));
+                  await new Promise(resolve => setTimeout(resolve, 300));
                 }
               }
               
