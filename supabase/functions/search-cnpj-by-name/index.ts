@@ -267,7 +267,7 @@ async function tryBrasilAPI(cnpj: string): Promise<any | null> {
   }
 }
 
-// Validate CNPJ with OpenCNPJ API
+// Validate CNPJ with OpenCNPJ API and ensure QSA is populated
 async function validateWithOpenCNPJ(cnpj: string): Promise<any | null> {
   try {
     const response = await fetch(`https://api.opencnpj.org/${cnpj}`, {
@@ -284,7 +284,8 @@ async function validateWithOpenCNPJ(cnpj: string): Promise<any | null> {
     }
 
     const data = await response.json();
-    return {
+    
+    let result = {
       cnpj: data.cnpj || cnpj,
       razao_social: data.razao_social,
       nome_fantasia: data.nome_fantasia,
@@ -292,12 +293,29 @@ async function validateWithOpenCNPJ(cnpj: string): Promise<any | null> {
       uf: data.uf,
       situacao: data.descricao_situacao_cadastral || data.situacao_cadastral,
       porte: data.porte,
-      capital_social: data.capital_social,
+      capital_social: typeof data.capital_social === 'number' ? data.capital_social : parseFloat(String(data.capital_social || '0').replace(/[^\d.]/g, '')) || 0,
       email: data.email,
       telefone_1: data.ddd_telefone_1,
       telefone_2: data.ddd_telefone_2,
       qsa: data.qsa || []
     };
+    
+    // If QSA is empty from OpenCNPJ, try to get it from BrasilAPI
+    if (!result.qsa || result.qsa.length === 0) {
+      console.log(`[OpenCNPJ] QSA empty for ${cnpj}, fetching from BrasilAPI...`);
+      const brasilData = await tryBrasilAPI(cnpj);
+      if (brasilData && brasilData.qsa && brasilData.qsa.length > 0) {
+        result.qsa = brasilData.qsa;
+        console.log(`[BrasilAPI] Got ${result.qsa.length} partners for ${cnpj}`);
+        
+        // Also fill in missing fields from BrasilAPI
+        if (!result.email && brasilData.email) result.email = brasilData.email;
+        if (!result.telefone_1 && brasilData.telefone_1) result.telefone_1 = brasilData.telefone_1;
+        if (!result.telefone_2 && brasilData.telefone_2) result.telefone_2 = brasilData.telefone_2;
+      }
+    }
+    
+    return result;
   } catch (error) {
     console.error(`[OpenCNPJ] Error:`, error);
     return await tryBrasilAPI(cnpj);

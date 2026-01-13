@@ -96,9 +96,13 @@ export function AutomaticBusinessSearch() {
       onlyWithPhone: true,
     });
 
-    // Auto-enrich if enabled
+    // Auto-enrich if enabled, passing the selected city for better accuracy
     if (enrichEnabled && results && results.length > 0) {
-      const enriched = await enriquecerLeads(results, searchPartnerPhones);
+      const enriched = await enriquecerLeads(
+        results, 
+        searchPartnerPhones,
+        cidadeSelecionada ? { city: cidadeSelecionada.nome, state: cidadeSelecionada.uf } : undefined
+      );
       setEnrichedLeads(enriched);
     }
   };
