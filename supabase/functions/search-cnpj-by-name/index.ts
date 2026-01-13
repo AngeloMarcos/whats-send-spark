@@ -63,28 +63,55 @@ function calculateSimilarity(str1: string, str2: string): number {
   return 1 - (distance / longer.length);
 }
 
-// Extract city and state from address
-function extractLocation(address: string): { city: string; state: string } {
-  // Try to extract state abbreviation
-  const stateMatch = address.match(/\b([A-Z]{2})\b(?:\s*[-,]|\s*$|\s+\d{5})/);
-  const state = stateMatch ? stateMatch[1] : '';
+// Extract CNPJs from text using regex
+function extractCNPJsFromText(text: string): string[] {
+  const regex = /\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}/g;
+  const matches = text.match(regex) || [];
   
-  // Try to extract city (usually before state or after "-")
-  const parts = address.split(/[-,]/);
-  let city = '';
+  // Normalize to 14 digits and deduplicate
+  const normalized = matches
+    .map(m => m.replace(/\D/g, ''))
+    .filter(cnpj => cnpj.length === 14);
   
-  for (const part of parts) {
-    const cleaned = part.trim();
-    if (cleaned.length > 3 && !cleaned.match(/^\d/) && cleaned !== state) {
-      // Check if it looks like a city name
-      if (!cleaned.match(/^(R\.|Rua|Av\.|Avenida|Al\.|Alameda|Pç\.|Praça)/i)) {
-        city = cleaned;
-      }
-    }
-  }
-  
-  return { city, state };
+  return [...new Set(normalized)];
 }
+
+// Validate CNPJ checksum
+function isValidCNPJ(cnpj: string): boolean {
+  const cleaned = cnpj.replace(/\D/g, '');
+  
+  if (cleaned.length !== 14) return false;
+  
+  // Check for known invalid patterns
+  if (/^(\d)\1+$/.test(cleaned)) return false;
+  
+  // Calculate first check digit
+  let sum = 0;
+  let weight = 5;
+  for (let i = 0; i < 12; i++) {
+    sum += parseInt(cleaned[i]) * weight;
+    weight = weight === 2 ? 9 : weight - 1;
+  }
+  let remainder = sum % 11;
+  const digit1 = remainder < 2 ? 0 : 11 - remainder;
+  
+  if (parseInt(cleaned[12]) !== digit1) return false;
+  
+  // Calculate second check digit
+  sum = 0;
+  weight = 6;
+  for (let i = 0; i < 13; i++) {
+    sum += parseInt(cleaned[i]) * weight;
+    weight = weight === 2 ? 9 : weight - 1;
+  }
+  remainder = sum % 11;
+  const digit2 = remainder < 2 ? 0 : 11 - remainder;
+  
+  return parseInt(cleaned[13]) === digit2;
+}
+
+// Delay helper
+const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 serve(async (req) => {
   // Handle CORS preflight
@@ -102,131 +129,163 @@ serve(async (req) => {
       );
     }
 
-    console.log(`Searching CNPJ for: ${companyName}, City: ${city}, State: ${state}`);
+    console.log(`[search-cnpj-by-name] Searching for: ${companyName}, City: ${city}, State: ${state}`);
 
-    // Extract location from address if city/state not provided
-    let searchCity = city || '';
-    let searchState = state || '';
-    
-    if ((!searchCity || !searchState) && address) {
-      const extracted = extractLocation(address);
-      searchCity = searchCity || extracted.city;
-      searchState = searchState || extracted.state;
+    const GOOGLE_API_KEY = Deno.env.get('GOOGLE_PLACES_API_KEY');
+    const GOOGLE_CSE_ID = Deno.env.get('GOOGLE_CSE_ID');
+
+    if (!GOOGLE_API_KEY || !GOOGLE_CSE_ID) {
+      console.error('[search-cnpj-by-name] Missing Google API configuration');
+      return new Response(
+        JSON.stringify({ 
+          cnpj: null, 
+          similarity: 0,
+          message: 'Configuração de API não encontrada' 
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
-    // Clean company name for search
-    const normalizedSearch = normalizeName(companyName);
-    console.log(`Normalized search: ${normalizedSearch}`);
-
-    // Use Casa dos Dados API (public, no key needed)
-    // Format: POST with search parameters
-    const searchUrl = 'https://casadosdados.com.br/api/v2/public/cnpj/search';
+    // Build search query for Google Custom Search
+    const locationStr = city && state ? `${city} ${state}` : (city || state || '');
+    const searchQuery = `"${companyName}" ${locationStr} CNPJ site:cnpj.ws OR site:casadosdados.com.br OR site:cnpja.com`;
     
-    const searchBody = {
-      query: {
-        termo: [normalizedSearch],
-        uf: searchState ? [searchState] : [],
-        municipio: searchCity ? [searchCity.toUpperCase()] : [],
-        situacao_cadastral: ['ATIVA'],
-        atividade_principal: [],
-        natureza_juridica: [],
-        cep: [],
-        ddd: []
-      },
-      range_query: {
-        data_abertura: { lte: null, gte: null },
-        capital_social: { lte: null, gte: null }
-      },
-      extras: {
-        somente_mei: false,
-        excluir_mei: false,
-        com_email: false,
-        incluir_atividade_secundaria: false,
-        com_contato_telefonico: false,
-        somente_fixo: false,
-        somente_celular: false,
-        somente_matriz: false,
-        somente_filial: false
-      },
-      page: 1
-    };
+    console.log(`[Google CSE] Query: ${searchQuery}`);
 
-    console.log('Calling Casa dos Dados API...');
-    
-    const response = await fetch(searchUrl, {
-      method: 'POST',
+    // Search using Google Custom Search API
+    const googleUrl = new URL('https://www.googleapis.com/customsearch/v1');
+    googleUrl.searchParams.set('key', GOOGLE_API_KEY);
+    googleUrl.searchParams.set('cx', GOOGLE_CSE_ID);
+    googleUrl.searchParams.set('q', searchQuery);
+    googleUrl.searchParams.set('num', '5');
+    googleUrl.searchParams.set('gl', 'br');
+    googleUrl.searchParams.set('lr', 'lang_pt');
+
+    const googleResponse = await fetch(googleUrl.toString(), {
       headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Origin': 'https://casadosdados.com.br',
-        'Referer': 'https://casadosdados.com.br/solucao/cnpj'
-      },
-      body: JSON.stringify(searchBody)
+        'Accept': 'application/json',
+      }
     });
 
-    if (!response.ok) {
-      console.log(`Casa dos Dados returned status: ${response.status}`);
-      
-      // Fallback: try alternative API (CNPJ.ws) with simpler search
-      const fallbackUrl = `https://www.receitaws.com.br/v1/cnpj/${encodeURIComponent(normalizedSearch)}`;
-      console.log('Trying fallback search...');
-      
-      // Since ReceitaWS needs a CNPJ, we'll return no result
+    if (!googleResponse.ok) {
+      console.error(`[Google CSE] Error: ${googleResponse.status} - ${await googleResponse.text()}`);
       return new Response(
         JSON.stringify({ 
           cnpj: null, 
           similarity: 0,
-          message: 'Empresa não encontrada na base de dados' 
+          message: 'Erro na busca do Google' 
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    const data = await response.json();
-    console.log(`Found ${data.data?.count || 0} results`);
+    const googleData = await googleResponse.json();
+    const items = googleData.items || [];
+    
+    console.log(`[Google CSE] Found ${items.length} results`);
 
-    if (!data.data?.cnpj || data.data.cnpj.length === 0) {
+    // Extract CNPJs from all results
+    const allCNPJs: string[] = [];
+    
+    for (const item of items) {
+      const textToSearch = `${item.title || ''} ${item.snippet || ''} ${item.link || ''}`;
+      const cnpjs = extractCNPJsFromText(textToSearch);
+      allCNPJs.push(...cnpjs);
+    }
+
+    // Deduplicate and validate CNPJs
+    const uniqueCNPJs = [...new Set(allCNPJs)].filter(isValidCNPJ);
+    
+    console.log(`[search-cnpj-by-name] Found ${uniqueCNPJs.length} valid CNPJs: ${uniqueCNPJs.join(', ')}`);
+
+    if (uniqueCNPJs.length === 0) {
       return new Response(
         JSON.stringify({ 
           cnpj: null, 
           similarity: 0,
-          message: 'Nenhuma empresa encontrada' 
+          message: 'Nenhum CNPJ encontrado nos resultados da busca' 
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Find best match by similarity
+    // Validate each CNPJ with OpenCNPJ API and find best match
     let bestMatch = null;
     let bestSimilarity = 0;
 
-    for (const empresa of data.data.cnpj) {
-      // Calculate similarity with both razao_social and nome_fantasia
-      const simRazao = calculateSimilarity(companyName, empresa.razao_social || '');
-      const simFantasia = calculateSimilarity(companyName, empresa.nome_fantasia || '');
-      const maxSim = Math.max(simRazao, simFantasia);
+    for (const cnpj of uniqueCNPJs.slice(0, 3)) { // Limit to 3 to avoid rate limiting
+      try {
+        console.log(`[OpenCNPJ] Validating CNPJ: ${cnpj}`);
+        
+        const openCnpjUrl = `https://api.opencnpj.org/${cnpj}`;
+        const cnpjResponse = await fetch(openCnpjUrl, {
+          headers: {
+            'Accept': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0',
+          }
+        });
 
-      console.log(`Comparing: ${empresa.nome_fantasia || empresa.razao_social} - Similarity: ${maxSim.toFixed(2)}`);
+        if (!cnpjResponse.ok) {
+          console.log(`[OpenCNPJ] CNPJ ${cnpj} not found or invalid`);
+          await delay(300);
+          continue;
+        }
 
-      if (maxSim > bestSimilarity) {
-        bestSimilarity = maxSim;
-        bestMatch = empresa;
+        const cnpjData = await cnpjResponse.json();
+        
+        // Calculate similarity with both names
+        const simRazao = calculateSimilarity(companyName, cnpjData.razao_social || '');
+        const simFantasia = calculateSimilarity(companyName, cnpjData.nome_fantasia || '');
+        const maxSim = Math.max(simRazao, simFantasia);
+
+        console.log(`[OpenCNPJ] ${cnpj}: razao="${cnpjData.razao_social}", fantasia="${cnpjData.nome_fantasia}", similarity=${maxSim.toFixed(2)}`);
+
+        // Check location match for bonus
+        let locationBonus = 0;
+        if (city && cnpjData.municipio) {
+          const cityNorm = normalizeName(city);
+          const muniNorm = normalizeName(cnpjData.municipio);
+          if (cityNorm === muniNorm || cityNorm.includes(muniNorm) || muniNorm.includes(cityNorm)) {
+            locationBonus = 0.1;
+          }
+        }
+        
+        const finalSimilarity = Math.min(maxSim + locationBonus, 1);
+
+        if (finalSimilarity > bestSimilarity) {
+          bestSimilarity = finalSimilarity;
+          bestMatch = {
+            cnpj: cnpjData.cnpj || cnpj,
+            razao_social: cnpjData.razao_social,
+            nome_fantasia: cnpjData.nome_fantasia,
+            municipio: cnpjData.municipio,
+            uf: cnpjData.uf,
+            situacao: cnpjData.descricao_situacao_cadastral || cnpjData.situacao_cadastral,
+            porte: cnpjData.porte,
+            capital_social: cnpjData.capital_social,
+            email: cnpjData.email,
+            telefone_1: cnpjData.ddd_telefone_1,
+            telefone_2: cnpjData.ddd_telefone_2,
+            qsa: cnpjData.qsa || [],
+            similarity: finalSimilarity
+          };
+        }
+
+        await delay(300); // Rate limiting for OpenCNPJ
+      } catch (error) {
+        console.error(`[OpenCNPJ] Error validating ${cnpj}:`, error);
+        await delay(300);
       }
     }
 
-    // Only return if similarity is above threshold (60%)
-    if (bestMatch && bestSimilarity >= 0.6) {
-      console.log(`Best match: ${bestMatch.cnpj} with similarity ${bestSimilarity.toFixed(2)}`);
+    // Only return if similarity is above threshold (55%)
+    if (bestMatch && bestSimilarity >= 0.55) {
+      console.log(`[search-cnpj-by-name] Best match: ${bestMatch.cnpj} with similarity ${bestSimilarity.toFixed(2)}`);
       
       return new Response(
         JSON.stringify({
-          cnpj: bestMatch.cnpj,
-          razao_social: bestMatch.razao_social,
-          nome_fantasia: bestMatch.nome_fantasia,
-          municipio: bestMatch.municipio,
-          uf: bestMatch.uf,
-          similarity: bestSimilarity,
-          situacao: bestMatch.situacao_cadastral
+          ...bestMatch,
+          message: 'CNPJ encontrado com sucesso'
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
@@ -242,7 +301,7 @@ serve(async (req) => {
     );
 
   } catch (error: unknown) {
-    console.error('Error in search-cnpj-by-name:', error);
+    console.error('[search-cnpj-by-name] Error:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return new Response(
       JSON.stringify({ error: errorMessage }),

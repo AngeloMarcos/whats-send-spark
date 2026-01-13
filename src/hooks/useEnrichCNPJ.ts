@@ -20,6 +20,28 @@ export interface EnrichmentMetrics {
   cnpjFoundByName: number;
 }
 
+interface CNPJSearchResult {
+  cnpj: string | null;
+  razao_social?: string;
+  nome_fantasia?: string;
+  municipio?: string;
+  uf?: string;
+  situacao?: string;
+  porte?: string;
+  capital_social?: number;
+  email?: string;
+  telefone_1?: string;
+  telefone_2?: string;
+  qsa?: Array<{
+    nome_socio: string;
+    qualificacao_socio: string;
+    data_entrada_sociedade?: string;
+    identificador_de_socio?: number | string;
+  }>;
+  similarity: number;
+  message?: string;
+}
+
 export function useEnrichCNPJ() {
   const [isEnriching, setIsEnriching] = useState(false);
   const [progress, setProgress] = useState<EnrichmentProgress>({ current: 0, total: 0, status: '' });
@@ -75,13 +97,13 @@ export function useEnrichCNPJ() {
     return { city, state };
   }, []);
 
-  // Search CNPJ by company name using Edge Function
+  // Search CNPJ by company name using Edge Function (now returns complete data)
   const buscarCNPJPorNome = useCallback(async (
     companyName: string,
     city: string,
     state: string,
     address: string
-  ): Promise<{ cnpj: string | null; similarity: number }> => {
+  ): Promise<CNPJSearchResult> => {
     try {
       const { data, error } = await supabase.functions.invoke('search-cnpj-by-name', {
         body: { 
@@ -99,7 +121,19 @@ export function useEnrichCNPJ() {
 
       return {
         cnpj: data?.cnpj || null,
-        similarity: data?.similarity || 0
+        razao_social: data?.razao_social,
+        nome_fantasia: data?.nome_fantasia,
+        municipio: data?.municipio,
+        uf: data?.uf,
+        situacao: data?.situacao,
+        porte: data?.porte,
+        capital_social: data?.capital_social,
+        email: data?.email,
+        telefone_1: data?.telefone_1,
+        telefone_2: data?.telefone_2,
+        qsa: data?.qsa || [],
+        similarity: data?.similarity || 0,
+        message: data?.message
       };
     } catch (error) {
       console.error('Error in buscarCNPJPorNome:', error);
@@ -118,18 +152,6 @@ export function useEnrichCNPJ() {
     }
     
     return numero;
-  }, []);
-
-  // Fetch CNPJ data from BrasilAPI
-  const fetchCNPJData = useCallback(async (cnpj: string) => {
-    const cleanCNPJ = cnpj.replace(/\D/g, '');
-    const response = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cleanCNPJ}`);
-    
-    if (!response.ok) {
-      throw new Error('CNPJ não encontrado');
-    }
-    
-    return response.json();
   }, []);
 
   // Search partner phones via Google Custom Search
@@ -180,6 +202,7 @@ export function useEnrichCNPJ() {
         // Step 1: Try to extract CNPJ directly (rarely works)
         let cnpj = extractCNPJ(lead);
         let foundByName = false;
+        let cnpjData: CNPJSearchResult | null = null;
         
         // Step 2: If no CNPJ found, search by company name
         if (!cnpj) {
@@ -193,8 +216,9 @@ export function useEnrichCNPJ() {
           const { city, state } = extractCityState(lead.address);
           const result = await buscarCNPJPorNome(lead.name, city, state, lead.address);
           
-          if (result.cnpj && result.similarity >= 0.6) {
+          if (result.cnpj && result.similarity >= 0.55) {
             cnpj = result.cnpj;
+            cnpjData = result;
             foundByName = true;
             cnpjFoundByNameCount++;
             console.log(`Found CNPJ ${cnpj} for ${lead.name} with similarity ${result.similarity.toFixed(2)}`);
@@ -214,82 +238,175 @@ export function useEnrichCNPJ() {
           continue;
         }
         
-        // Step 3: Fetch data from BrasilAPI
-        setProgress({ 
-          current: i + 1, 
-          total: leads.length, 
-          status: `📊 Consultando dados: ${lead.name.substring(0, 25)}...`,
-          step: 'fetching_data'
-        });
-        
-        const data = await fetchCNPJData(cnpj);
-        
-        // Process partners (QSA)
-        const socios: Socio[] = [];
-        
-        for (const s of (data.qsa || [])) {
-          const socio: Socio = {
-            nome: s.nome_socio,
-            qualificacao: s.qualificacao_socio,
-            dataEntrada: s.data_entrada_sociedade,
-            tipo: s.identificador_de_socio === 1 || s.identificador_de_socio === '1' ? 'PF' : 'PJ',
-            telefonesEncontrados: [],
-            fontesTelefones: []
-          };
+        // Use data from the search result (already includes QSA from OpenCNPJ)
+        if (cnpjData && cnpjData.qsa && cnpjData.qsa.length > 0) {
+          setProgress({ 
+            current: i + 1, 
+            total: leads.length, 
+            status: `📊 Processando sócios: ${lead.name.substring(0, 25)}...`,
+            step: 'fetching_data'
+          });
           
-          // Step 4: Search partner phones if enabled and partner is a person (PF)
-          if (buscarTelefonesSocios && socio.tipo === 'PF') {
-            setProgress({ 
-              current: i + 1, 
-              total: leads.length, 
-              status: `📞 Buscando telefone: ${socio.nome.substring(0, 20)}...`,
-              step: 'searching_phones'
-            });
+          // Process partners from QSA
+          const socios: Socio[] = [];
+          
+          for (const s of cnpjData.qsa) {
+            const socio: Socio = {
+              nome: s.nome_socio,
+              qualificacao: s.qualificacao_socio,
+              dataEntrada: s.data_entrada_sociedade,
+              tipo: s.identificador_de_socio === 1 || s.identificador_de_socio === '1' ? 'PF' : 'PJ',
+              telefonesEncontrados: [],
+              fontesTelefones: []
+            };
             
-            const { telefones, fontes } = await buscarTelefonesSocio(
-              socio.nome,
-              data.municipio || '',
-              data.uf || ''
-            );
-            
-            socio.telefonesEncontrados = telefones;
-            socio.fontesTelefones = fontes;
-            
-            // Delay between phone searches to avoid rate limiting
-            if (telefones.length > 0) {
-              await new Promise(resolve => setTimeout(resolve, 1500));
-            } else {
-              await new Promise(resolve => setTimeout(resolve, 500));
+            // Search partner phones if enabled and partner is a person (PF)
+            if (buscarTelefonesSocios && socio.tipo === 'PF') {
+              setProgress({ 
+                current: i + 1, 
+                total: leads.length, 
+                status: `📞 Buscando telefone: ${socio.nome.substring(0, 20)}...`,
+                step: 'searching_phones'
+              });
+              
+              const { telefones, fontes } = await buscarTelefonesSocio(
+                socio.nome,
+                cnpjData.municipio || '',
+                cnpjData.uf || ''
+              );
+              
+              socio.telefonesEncontrados = telefones;
+              socio.fontesTelefones = fontes;
+              
+              // Delay between phone searches to avoid rate limiting
+              if (telefones.length > 0) {
+                await new Promise(resolve => setTimeout(resolve, 1500));
+              } else {
+                await new Promise(resolve => setTimeout(resolve, 500));
+              }
             }
+            
+            socios.push(socio);
           }
           
-          socios.push(socio);
+          // Format official phones
+          const telefonesOficiais: string[] = [];
+          if (cnpjData.telefone_1) {
+            telefonesOficiais.push(formatarTelefoneBR(cnpjData.telefone_1));
+          }
+          if (cnpjData.telefone_2) {
+            telefonesOficiais.push(formatarTelefoneBR(cnpjData.telefone_2));
+          }
+          
+          // Enriched lead with data from OpenCNPJ
+          enrichedLeads.push({
+            ...lead,
+            cnpj: cnpjData.cnpj,
+            razaoSocial: cnpjData.razao_social,
+            nomeFantasia: cnpjData.nome_fantasia || cnpjData.razao_social,
+            email_oficial: cnpjData.email || undefined,
+            telefones_oficiais: telefonesOficiais.length > 0 ? telefonesOficiais : undefined,
+            situacao_cadastral: cnpjData.situacao,
+            porte: cnpjData.porte,
+            capital_social: cnpjData.capital_social,
+            socios,
+            enriched: true,
+            cnpjFoundByName: foundByName
+          });
+        } else {
+          // If no QSA data from search, try BrasilAPI as fallback
+          setProgress({ 
+            current: i + 1, 
+            total: leads.length, 
+            status: `📊 Consultando BrasilAPI: ${lead.name.substring(0, 25)}...`,
+            step: 'fetching_data'
+          });
+          
+          try {
+            const cleanCNPJ = cnpj.replace(/\D/g, '');
+            const response = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cleanCNPJ}`);
+            
+            if (!response.ok) {
+              throw new Error('CNPJ não encontrado');
+            }
+            
+            const data = await response.json();
+            
+            // Process partners (QSA)
+            const socios: Socio[] = [];
+            
+            for (const s of (data.qsa || [])) {
+              const socio: Socio = {
+                nome: s.nome_socio,
+                qualificacao: s.qualificacao_socio,
+                dataEntrada: s.data_entrada_sociedade,
+                tipo: s.identificador_de_socio === 1 || s.identificador_de_socio === '1' ? 'PF' : 'PJ',
+                telefonesEncontrados: [],
+                fontesTelefones: []
+              };
+              
+              // Search partner phones if enabled and partner is a person (PF)
+              if (buscarTelefonesSocios && socio.tipo === 'PF') {
+                setProgress({ 
+                  current: i + 1, 
+                  total: leads.length, 
+                  status: `📞 Buscando telefone: ${socio.nome.substring(0, 20)}...`,
+                  step: 'searching_phones'
+                });
+                
+                const { telefones, fontes } = await buscarTelefonesSocio(
+                  socio.nome,
+                  data.municipio || '',
+                  data.uf || ''
+                );
+                
+                socio.telefonesEncontrados = telefones;
+                socio.fontesTelefones = fontes;
+                
+                // Delay between phone searches
+                if (telefones.length > 0) {
+                  await new Promise(resolve => setTimeout(resolve, 1500));
+                } else {
+                  await new Promise(resolve => setTimeout(resolve, 500));
+                }
+              }
+              
+              socios.push(socio);
+            }
+            
+            // Format official phones
+            const telefonesOficiais: string[] = [];
+            if (data.ddd_telefone_1) {
+              telefonesOficiais.push(formatarTelefoneBR(data.ddd_telefone_1));
+            }
+            if (data.ddd_telefone_2) {
+              telefonesOficiais.push(formatarTelefoneBR(data.ddd_telefone_2));
+            }
+            
+            // Enriched lead from BrasilAPI
+            enrichedLeads.push({
+              ...lead,
+              cnpj: data.cnpj,
+              razaoSocial: data.razao_social,
+              nomeFantasia: data.nome_fantasia || data.razao_social,
+              email_oficial: data.email || undefined,
+              telefones_oficiais: telefonesOficiais.length > 0 ? telefonesOficiais : undefined,
+              situacao_cadastral: data.descricao_situacao_cadastral || data.situacao_cadastral,
+              porte: data.porte,
+              capital_social: data.capital_social,
+              socios,
+              enriched: true,
+              cnpjFoundByName: foundByName
+            });
+          } catch (fallbackError) {
+            console.error(`Error fetching from BrasilAPI for ${lead.name}:`, fallbackError);
+            enrichedLeads.push({
+              ...lead,
+              enriched: false,
+              enrichmentError: 'Erro ao consultar dados do CNPJ'
+            });
+          }
         }
-        
-        // Format official phones
-        const telefonesOficiais: string[] = [];
-        if (data.ddd_telefone_1) {
-          telefonesOficiais.push(formatarTelefoneBR(data.ddd_telefone_1));
-        }
-        if (data.ddd_telefone_2) {
-          telefonesOficiais.push(formatarTelefoneBR(data.ddd_telefone_2));
-        }
-        
-        // Enriched lead
-        enrichedLeads.push({
-          ...lead,
-          cnpj: data.cnpj,
-          razaoSocial: data.razao_social,
-          nomeFantasia: data.nome_fantasia || data.razao_social,
-          email_oficial: data.email || undefined,
-          telefones_oficiais: telefonesOficiais.length > 0 ? telefonesOficiais : undefined,
-          situacao_cadastral: data.descricao_situacao_cadastral || data.situacao_cadastral,
-          porte: data.porte,
-          capital_social: data.capital_social,
-          socios,
-          enriched: true,
-          cnpjFoundByName: foundByName
-        });
         
       } catch (error) {
         console.error(`Error enriching ${lead.name}:`, error);
@@ -310,7 +427,7 @@ export function useEnrichCNPJ() {
     console.log(`Enrichment complete. CNPJs found by name: ${cnpjFoundByNameCount}`);
     
     return enrichedLeads;
-  }, [extractCNPJ, extractCityState, buscarCNPJPorNome, fetchCNPJData, formatarTelefoneBR, buscarTelefonesSocio]);
+  }, [extractCNPJ, extractCityState, buscarCNPJPorNome, formatarTelefoneBR, buscarTelefonesSocio]);
 
   // Calculate enrichment metrics
   const calculateMetrics = useCallback((leads: Lead[]): EnrichmentMetrics => {
