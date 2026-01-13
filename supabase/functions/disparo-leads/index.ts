@@ -95,12 +95,39 @@ serve(async (req) => {
   }
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+  const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
   const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
   
-  // Use service role for full database access
-  const supabase = createClient(supabaseUrl, supabaseServiceKey);
-  
   try {
+    // Verify authentication first
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader?.startsWith('Bearer ')) {
+      return new Response(JSON.stringify({ error: 'Missing or invalid authorization header' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Create auth client to verify the user's token
+    const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: authHeader } }
+    });
+
+    const token = authHeader.replace('Bearer ', '');
+    const { data: claimsData, error: claimsError } = await supabaseAuth.auth.getClaims(token);
+    
+    if (claimsError || !claimsData?.claims) {
+      console.error('Auth verification failed:', claimsError);
+      return new Response(JSON.stringify({ error: 'Unauthorized - invalid token' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const authenticatedUserId = claimsData.claims.sub;
+    console.log('Authenticated user:', authenticatedUserId);
+
+    // Parse the payload
     const payload: LeadDispatchPayload = await req.json();
     console.log('Received dispatch request:', JSON.stringify(payload, null, 2));
 
@@ -129,6 +156,18 @@ serve(async (req) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
+
+    // CRITICAL: Verify that the authenticated user matches the requested user_id
+    if (authenticatedUserId !== user_id) {
+      console.error('User mismatch: authenticated user', authenticatedUserId, 'tried to access user_id', user_id);
+      return new Response(JSON.stringify({ error: 'Forbidden - cannot access other user data' }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Now use service role for database operations (authenticated user is verified)
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     // Check business hours unless it's a test/manual dispatch
     if (event !== 'manual_dispatch' && !isWithinBusinessHours()) {
