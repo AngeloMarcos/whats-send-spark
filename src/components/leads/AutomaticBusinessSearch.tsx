@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Search, MapPin, Building2, Loader2, Sparkles, Users, Mail, Phone } from 'lucide-react';
+import { Search, MapPin, Building2, Loader2, Sparkles, Users, Mail, Phone, Info } from 'lucide-react';
 import { useGooglePlaces, Lead } from '@/hooks/useGooglePlaces';
 import { useIBGELocalidades, Localidade } from '@/hooks/useIBGELocalidades';
 import { useEnrichCNPJ } from '@/hooks/useEnrichCNPJ';
@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { AutoSearchResultsTable } from './AutoSearchResultsTable';
 import { LeadActions } from './LeadActions';
 import { cn } from '@/lib/utils';
@@ -49,6 +50,7 @@ export function AutomaticBusinessSearch() {
   
   // Enrichment options
   const [enrichEnabled, setEnrichEnabled] = useState(true);
+  const [searchPartnerPhones, setSearchPartnerPhones] = useState(false);
   const [enrichedLeads, setEnrichedLeads] = useState<Lead[]>([]);
 
   const { searchLocalidades, isLoading: loadingCidades } = useIBGELocalidades();
@@ -96,7 +98,7 @@ export function AutomaticBusinessSearch() {
 
     // Auto-enrich if enabled
     if (enrichEnabled && results && results.length > 0) {
-      const enriched = await enriquecerLeads(results, false);
+      const enriched = await enriquecerLeads(results, searchPartnerPhones);
       setEnrichedLeads(enriched);
     }
   };
@@ -243,19 +245,48 @@ export function AutomaticBusinessSearch() {
           </div>
 
           {/* Enrichment Options */}
-          <div className="space-y-3 border-t pt-4">
-            <div className="flex items-center space-x-2">
-              <Checkbox 
-                id="enrich" 
-                checked={enrichEnabled} 
-                onCheckedChange={(checked) => setEnrichEnabled(checked === true)}
-              />
-              <Label htmlFor="enrich" className="flex items-center gap-2 cursor-pointer text-sm">
-                <Users className="h-4 w-4 text-blue-600" />
-                Enriquecer com dados CNPJ (sócios, emails, telefones oficiais)
-              </Label>
+          <TooltipProvider>
+            <div className="space-y-3 border-t pt-4">
+              <div className="flex items-center space-x-2">
+                <Checkbox 
+                  id="enrich" 
+                  checked={enrichEnabled} 
+                  onCheckedChange={(checked) => {
+                    setEnrichEnabled(checked === true);
+                    if (!checked) setSearchPartnerPhones(false);
+                  }}
+                />
+                <Label htmlFor="enrich" className="flex items-center gap-2 cursor-pointer text-sm">
+                  <Users className="h-4 w-4 text-blue-600" />
+                  Enriquecer com dados CNPJ (sócios, emails, telefones oficiais)
+                </Label>
+              </div>
+
+              {/* Partner phone search option */}
+              {enrichEnabled && (
+                <div className="flex items-center space-x-2 ml-6">
+                  <Checkbox 
+                    id="searchPhones" 
+                    checked={searchPartnerPhones} 
+                    onCheckedChange={(checked) => setSearchPartnerPhones(checked === true)}
+                  />
+                  <Label htmlFor="searchPhones" className="flex items-center gap-2 cursor-pointer text-sm">
+                    <Phone className="h-4 w-4 text-orange-600" />
+                    Buscar telefones dos sócios (mais lento)
+                  </Label>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+                    </TooltipTrigger>
+                    <TooltipContent side="right" className="max-w-xs">
+                      <p>Busca telefones pessoais dos sócios na internet via Google.</p>
+                      <p className="text-xs text-muted-foreground mt-1">Pode demorar mais tempo e nem sempre encontra resultados.</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+              )}
             </div>
-          </div>
+          </TooltipProvider>
 
           {/* Search Button */}
           <Button 
@@ -426,6 +457,23 @@ export function AutomaticBusinessSearch() {
               </div>
             </CardContent>
           </Card>
+
+          {/* Partner phones metric - only show if there are any */}
+          {enrichmentMetrics.totalPartnerPhones > 0 && (
+            <Card className="border-green-200 bg-green-50/50 dark:bg-green-950/20 dark:border-green-800">
+              <CardContent className="pt-4">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-lg bg-green-500/20 flex items-center justify-center">
+                    <span className="text-lg">🔍</span>
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold text-green-700 dark:text-green-400">{enrichmentMetrics.totalPartnerPhones}</p>
+                    <p className="text-xs text-green-600 dark:text-green-500 font-medium">Tel. Sócios</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
       )}
 
