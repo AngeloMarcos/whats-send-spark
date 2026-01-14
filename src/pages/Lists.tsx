@@ -295,6 +295,21 @@ export default function Lists() {
           }
         }
 
+        // Update contact_count in the list after all leads are inserted
+        if (insertedCount > 0) {
+          const { error: updateError } = await supabase
+            .from('lists')
+            .update({ 
+              contact_count: insertedCount,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', newList.id);
+
+          if (updateError) {
+            console.error('Error updating contact_count:', updateError);
+          }
+        }
+
         toast({ 
           title: 'Lista criada com sucesso!',
           description: `${insertedCount} contatos importados`

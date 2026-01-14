@@ -26,6 +26,25 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    // Ignore DOM errors caused by browser extensions (translators, Grammarly, etc.)
+    const domExtensionErrors = [
+      'removeChild',
+      'insertBefore',
+      'appendChild',
+      'replaceChild',
+      'Node was not found',
+    ];
+    
+    const isDomExtensionError = domExtensionErrors.some(
+      err => error?.message?.includes(err)
+    );
+    
+    if (isDomExtensionError) {
+      console.warn('[ErrorBoundary] DOM error likely from browser extension, ignoring:', error.message);
+      this.setState({ hasError: false, error: undefined, errorInfo: undefined });
+      return;
+    }
+    
     console.error('ErrorBoundary caught an error:', error, errorInfo);
     this.setState({ errorInfo });
     
