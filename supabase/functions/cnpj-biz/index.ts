@@ -175,11 +175,13 @@ serve(async (req) => {
       const cleanCNPJ = String(cnpj).replace(/\D/g, '');
       console.log(`[cnpj-biz] Fetching CNPJ: ${cleanCNPJ}`);
 
-      const res = await fetch(`${CNPJ_BIZ_BASE_URL}/cnpj/${cleanCNPJ}`, {
+      // Use token as query param (alternative auth method per docs)
+      const fetchUrl = `${CNPJ_BIZ_BASE_URL}/cnpj/${cleanCNPJ}?token=${CNPJ_BIZ_API_KEY}`;
+      console.log(`[cnpj-biz] Fetching URL: ${CNPJ_BIZ_BASE_URL}/cnpj/${cleanCNPJ}?token=***`);
+      
+      const res = await fetch(fetchUrl, {
         method: 'GET',
         headers: {
-          // CNPJws commercial API supports x_api_token
-          'x_api_token': CNPJ_BIZ_API_KEY,
           'Content-Type': 'application/json',
         },
       });
@@ -199,13 +201,17 @@ serve(async (req) => {
 
     } else if (action === 'search' && companyName) {
       // Search by company name (we only filter by razao_social; city/state require cidade_id)
-      const params = new URLSearchParams({ razao_social: String(companyName) });
-      console.log(`[cnpj-biz] Searching razao_social: ${companyName}`);
+      // Use token as query param (alternative auth method per docs)
+      const searchParams = new URLSearchParams({ 
+        razao_social: String(companyName),
+        token: CNPJ_BIZ_API_KEY || ''
+      });
+      const searchUrl = `${CNPJ_BIZ_BASE_URL}/pesquisa?${searchParams}`;
+      console.log(`[cnpj-biz] Searching: ${CNPJ_BIZ_BASE_URL}/pesquisa?razao_social=${encodeURIComponent(companyName)}&token=***`);
 
-      const res = await fetch(`${CNPJ_BIZ_BASE_URL}/pesquisa?${params}`, {
+      const res = await fetch(searchUrl, {
         method: 'GET',
         headers: {
-          'x_api_token': CNPJ_BIZ_API_KEY,
           'Content-Type': 'application/json',
         },
       });
