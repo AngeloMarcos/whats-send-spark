@@ -32,6 +32,22 @@ interface SearchResponse {
   tempoMs: number;
 }
 
+interface SerperResult {
+  title: string;
+  link: string;
+  snippet: string;
+  position: number;
+}
+
+interface SerperResponse {
+  organic?: SerperResult[];
+  searchParameters?: {
+    q: string;
+    gl: string;
+    hl: string;
+  };
+}
+
 // ═══════════════════════════════════════════════════════════════
 // FUNÇÕES AUXILIARES
 // ═══════════════════════════════════════════════════════════════
@@ -180,17 +196,49 @@ function removerDuplicatas(telefones: PhoneResult[]): PhoneResult[] {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// CAMADAS DE BUSCA
+// FUNÇÃO AUXILIAR SERPER
 // ═══════════════════════════════════════════════════════════════
 
-async function camada1_GoogleCSEAprimorado(
+async function buscarSerper(query: string, serperKey: string, num: number = 10): Promise<SerperResult[]> {
+  try {
+    const response = await fetch('https://google.serper.dev/search', {
+      method: 'POST',
+      headers: {
+        'X-API-KEY': serperKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        q: query,
+        gl: 'br',
+        hl: 'pt-br',
+        num,
+      }),
+    });
+
+    if (!response.ok) {
+      console.error(`[Serper] Erro ${response.status}: ${await response.text()}`);
+      return [];
+    }
+
+    const data: SerperResponse = await response.json();
+    return data.organic || [];
+  } catch (error) {
+    console.error('[Serper] Erro na busca:', error);
+    return [];
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CAMADAS DE BUSCA (Migradas para Serper)
+// ═══════════════════════════════════════════════════════════════
+
+async function camada1_SerperBuscaPrincipal(
   partnerName: string,
   city: string,
   state: string,
-  apiKey: string,
-  cseId: string
+  serperKey: string
 ): Promise<PhoneResult[]> {
-  console.log(`[Camada 1] Google CSE aprimorado para: ${partnerName}`);
+  console.log(`[Camada 1] Serper busca principal para: ${partnerName}`);
   const resultados: PhoneResult[] = [];
   
   // Múltiplas queries para melhor cobertura
@@ -205,29 +253,17 @@ async function camada1_GoogleCSEAprimorado(
   
   for (let i = 0; i < queries.length && resultados.length < 3; i++) {
     try {
-      const searchUrl = new URL('https://www.googleapis.com/customsearch/v1');
-      searchUrl.searchParams.set('key', apiKey);
-      searchUrl.searchParams.set('cx', cseId);
-      searchUrl.searchParams.set('q', queries[i]);
-      searchUrl.searchParams.set('num', '10');
-      searchUrl.searchParams.set('gl', 'br');
-      searchUrl.searchParams.set('lr', 'lang_pt');
-      
-      const response = await fetch(searchUrl.toString());
-      if (!response.ok) continue;
-      
-      const data = await response.json();
-      const items = data.items || [];
+      const items = await buscarSerper(queries[i], serperKey, 10);
       
       for (const item of items) {
-        const texto = `${item.title || ''} ${item.snippet || ''} ${item.htmlSnippet || ''}`;
+        const texto = `${item.title || ''} ${item.snippet || ''}`;
         const telefones = extrairTelefonesDoTexto(texto);
         
         for (const tel of telefones) {
           if (!resultados.some(r => r.telefone.replace(/\D/g, '') === tel.replace(/\D/g, ''))) {
             resultados.push({
               telefone: tel,
-              fonte: 'Google CSE',
+              fonte: 'Serper Search',
               camada: 1,
               confiabilidade: calcularConfiabilidade(texto, partnerName, item.link || ''),
               tipo: detectarTipoTelefone(tel),
@@ -254,8 +290,7 @@ async function camada2_OutrasEmpresasSocio(
   partnerName: string,
   city: string,
   state: string,
-  apiKey: string,
-  cseId: string
+  serperKey: string
 ): Promise<PhoneResult[]> {
   console.log(`[Camada 2] Buscando outras empresas de: ${partnerName}`);
   const resultados: PhoneResult[] = [];
@@ -263,19 +298,7 @@ async function camada2_OutrasEmpresasSocio(
   try {
     // Buscar outras empresas onde o sócio participa
     const query = `"${partnerName}" CNPJ socio ${state}`;
-    
-    const searchUrl = new URL('https://www.googleapis.com/customsearch/v1');
-    searchUrl.searchParams.set('key', apiKey);
-    searchUrl.searchParams.set('cx', cseId);
-    searchUrl.searchParams.set('q', query);
-    searchUrl.searchParams.set('num', '5');
-    searchUrl.searchParams.set('gl', 'br');
-    
-    const response = await fetch(searchUrl.toString());
-    if (!response.ok) return resultados;
-    
-    const data = await response.json();
-    const items = data.items || [];
+    const items = await buscarSerper(query, serperKey, 5);
     
     for (const item of items) {
       const texto = `${item.title || ''} ${item.snippet || ''}`;
@@ -306,8 +329,7 @@ async function camada3_DiretoriosEmpresariais(
   partnerName: string,
   empresaNome: string,
   city: string,
-  apiKey: string,
-  cseId: string
+  serperKey: string
 ): Promise<PhoneResult[]> {
   console.log(`[Camada 3] Diretórios empresariais para: ${partnerName} / ${empresaNome}`);
   const resultados: PhoneResult[] = [];
@@ -324,19 +346,7 @@ async function camada3_DiretoriosEmpresariais(
   try {
     const siteQuery = sites.map(s => `site:${s}`).join(' OR ');
     const query = `(${siteQuery}) "${partnerName}" ${city}`;
-    
-    const searchUrl = new URL('https://www.googleapis.com/customsearch/v1');
-    searchUrl.searchParams.set('key', apiKey);
-    searchUrl.searchParams.set('cx', cseId);
-    searchUrl.searchParams.set('q', query);
-    searchUrl.searchParams.set('num', '5');
-    searchUrl.searchParams.set('gl', 'br');
-    
-    const response = await fetch(searchUrl.toString());
-    if (!response.ok) return resultados;
-    
-    const data = await response.json();
-    const items = data.items || [];
+    const items = await buscarSerper(query, serperKey, 5);
     
     for (const item of items) {
       const texto = `${item.title || ''} ${item.snippet || ''}`;
@@ -367,8 +377,7 @@ async function camada3_DiretoriosEmpresariais(
 async function camada4_RedesSociaisPublicas(
   partnerName: string,
   city: string,
-  apiKey: string,
-  cseId: string
+  serperKey: string
 ): Promise<PhoneResult[]> {
   console.log(`[Camada 4] Redes sociais públicas para: ${partnerName}`);
   const resultados: PhoneResult[] = [];
@@ -376,19 +385,7 @@ async function camada4_RedesSociaisPublicas(
   try {
     // Busca em perfis públicos de redes sociais
     const query = `"${partnerName}" ${city} (site:linkedin.com/in OR site:facebook.com OR site:instagram.com) (telefone OR celular OR contato)`;
-    
-    const searchUrl = new URL('https://www.googleapis.com/customsearch/v1');
-    searchUrl.searchParams.set('key', apiKey);
-    searchUrl.searchParams.set('cx', cseId);
-    searchUrl.searchParams.set('q', query);
-    searchUrl.searchParams.set('num', '5');
-    searchUrl.searchParams.set('gl', 'br');
-    
-    const response = await fetch(searchUrl.toString());
-    if (!response.ok) return resultados;
-    
-    const data = await response.json();
-    const items = data.items || [];
+    const items = await buscarSerper(query, serperKey, 5);
     
     for (const item of items) {
       const texto = `${item.title || ''} ${item.snippet || ''}`;
@@ -489,14 +486,14 @@ serve(async (req) => {
   const startTime = Date.now();
 
   try {
-    const GOOGLE_API_KEY = Deno.env.get('GOOGLE_PLACES_API_KEY');
-    const GOOGLE_CSE_ID = Deno.env.get('GOOGLE_CSE_ID');
+    const SERPER_API_KEY = Deno.env.get('SERPER_API_KEY');
+    const GOOGLE_PLACES_API_KEY = Deno.env.get('GOOGLE_PLACES_API_KEY');
 
-    if (!GOOGLE_API_KEY || !GOOGLE_CSE_ID) {
-      console.error('Missing API keys');
+    if (!SERPER_API_KEY) {
+      console.error('SERPER_API_KEY não configurada');
       return new Response(
         JSON.stringify({ 
-          error: 'API não configurada',
+          error: 'API Serper não configurada',
           telefones: [],
           totalEncontrados: 0,
           camadasConsultadas: 0,
@@ -540,7 +537,7 @@ serve(async (req) => {
     }
 
     console.log(`\n${'═'.repeat(60)}`);
-    console.log(`Busca multi-camadas para: ${socioNome}`);
+    console.log(`Busca multi-camadas (Serper) para: ${socioNome}`);
     console.log(`Empresa: ${empresaNome} | Cidade: ${cidade} ${uf || ''}`);
     console.log('═'.repeat(60));
 
@@ -551,9 +548,9 @@ serve(async (req) => {
     // EXECUTAR CAMADAS EM SEQUÊNCIA (para em 2+ celulares)
     // ═══════════════════════════════════════════════════════════
 
-    // Camada 1: Google CSE Aprimorado
-    const resultadosCamada1 = await camada1_GoogleCSEAprimorado(
-      socioNome, cidade, uf || '', GOOGLE_API_KEY, GOOGLE_CSE_ID
+    // Camada 1: Serper Busca Principal
+    const resultadosCamada1 = await camada1_SerperBuscaPrincipal(
+      socioNome, cidade, uf || '', SERPER_API_KEY
     );
     todosTelefones.push(...resultadosCamada1);
     camadasExecutadas++;
@@ -566,7 +563,7 @@ serve(async (req) => {
       // Camada 2: Outras empresas do sócio
       await new Promise(r => setTimeout(r, 300));
       const resultadosCamada2 = await camada2_OutrasEmpresasSocio(
-        socioNome, cidade, uf || '', GOOGLE_API_KEY, GOOGLE_CSE_ID
+        socioNome, cidade, uf || '', SERPER_API_KEY
       );
       todosTelefones.push(...resultadosCamada2);
       camadasExecutadas++;
@@ -578,7 +575,7 @@ serve(async (req) => {
         // Camada 3: Diretórios empresariais
         await new Promise(r => setTimeout(r, 300));
         const resultadosCamada3 = await camada3_DiretoriosEmpresariais(
-          socioNome, empresaNome, cidade, GOOGLE_API_KEY, GOOGLE_CSE_ID
+          socioNome, empresaNome, cidade, SERPER_API_KEY
         );
         todosTelefones.push(...resultadosCamada3);
         camadasExecutadas++;
@@ -586,16 +583,16 @@ serve(async (req) => {
         // Camada 4: Redes sociais públicas
         await new Promise(r => setTimeout(r, 300));
         const resultadosCamada4 = await camada4_RedesSociaisPublicas(
-          socioNome, cidade, GOOGLE_API_KEY, GOOGLE_CSE_ID
+          socioNome, cidade, SERPER_API_KEY
         );
         todosTelefones.push(...resultadosCamada4);
         camadasExecutadas++;
 
-        // Camada 5: Google Places da empresa (fallback)
-        if (todosTelefones.filter(t => t.tipo === 'celular').length === 0) {
+        // Camada 5: Google Places da empresa (fallback) - mantido com Google Places API
+        if (todosTelefones.filter(t => t.tipo === 'celular').length === 0 && GOOGLE_PLACES_API_KEY) {
           await new Promise(r => setTimeout(r, 300));
           const resultadosCamada5 = await camada5_GooglePlacesEmpresa(
-            empresaNome, cidade, uf || '', GOOGLE_API_KEY
+            empresaNome, cidade, uf || '', GOOGLE_PLACES_API_KEY
           );
           todosTelefones.push(...resultadosCamada5);
           camadasExecutadas++;
