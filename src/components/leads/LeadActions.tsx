@@ -102,15 +102,16 @@ export function LeadActions({ leads, selectedLeads }: LeadActionsProps) {
     try {
       const selectedPhones = selectedItems.map(lead => lead.phone);
       
-      const { data: existingContacts, error } = await supabase
-        .from('contacts')
-        .select('phone')
+      // Check duplicates in leads table instead of contacts
+      const { data: existingLeads, error } = await supabase
+        .from('leads')
+        .select('telefones')
         .eq('list_id', listId)
-        .in('phone', selectedPhones);
+        .eq('user_id', user.id);
 
       if (error) throw error;
 
-      const existingPhones = new Set(existingContacts?.map(c => c.phone) || []);
+      const existingPhones = new Set(existingLeads?.map(l => l.telefones) || []);
       const duplicatePhones = selectedPhones.filter(phone => existingPhones.has(phone));
       
       setDuplicateAnalysis({
@@ -281,41 +282,7 @@ export function LeadActions({ leads, selectedLeads }: LeadActionsProps) {
         return;
       }
 
-      // Insert contacts
-      const contacts = leadsToInsert.map(lead => ({
-        list_id: listId,
-        user_id: user.id,
-        name: lead.name,
-        phone: lead.phone,
-        extra_data: {
-          source: 'google_maps',
-          address: lead.address,
-          category: lead.category,
-          rating: lead.rating,
-          reviews_count: lead.reviews_count,
-          website: lead.website,
-          latitude: lead.latitude,
-          longitude: lead.longitude,
-          place_id: lead.place_id,
-          captured_at: new Date().toISOString(),
-        },
-        is_valid: true,
-      }));
-
-      console.log('Inserting contacts:', contacts.length);
-      
-      const { error: contactsError } = await supabase
-        .from('contacts')
-        .insert(contacts);
-
-      if (contactsError) {
-        console.error('Error inserting contacts:', contactsError);
-        throw new Error(`Erro ao inserir contatos: ${contactsError.message}`);
-      }
-
-      console.log('Contacts inserted successfully');
-
-      // Also insert into leads table for tracking and enrichment
+      // Insert leads into leads table (single source of truth)
       const leadsData = leadsToInsert.map(lead => ({
         user_id: user.id,
         list_id: listId,
@@ -329,6 +296,8 @@ export function LeadActions({ leads, selectedLeads }: LeadActionsProps) {
         nome_fantasia: lead.nomeFantasia || null,
         email: lead.email_oficial || null,
         situacao: lead.situacao_cadastral || null,
+        porte_empresa: lead.porte || null,
+        capital_social: lead.capital_social?.toString() || null,
         socios: lead.socios ? JSON.parse(JSON.stringify(lead.socios)) : null,
         source: 'google_maps',
         status: 'novo',
@@ -343,15 +312,30 @@ export function LeadActions({ leads, selectedLeads }: LeadActionsProps) {
         },
       }));
 
+      console.log('Inserting leads:', leadsData.length);
+      
       const { error: leadsError } = await supabase
         .from('leads')
         .insert(leadsData);
 
       if (leadsError) {
         console.error('Error inserting leads:', leadsError);
-        // Don't throw here - contacts were already saved successfully
-      } else {
-        console.log('Leads inserted successfully');
+        throw new Error(`Erro ao inserir leads: ${leadsError.message}`);
+      }
+
+      console.log('Leads inserted successfully');
+
+      // Update list contact_count manually since we're not using contacts table
+      const { error: updateError } = await supabase
+        .from('lists')
+        .update({ 
+          contact_count: (existingLists.find(l => l.id === listId)?.contact_count || 0) + leadsData.length,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', listId);
+
+      if (updateError) {
+        console.error('Error updating list count:', updateError);
       }
 
       const skippedText = duplicateAnalysis?.duplicateCount 

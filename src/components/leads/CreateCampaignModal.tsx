@@ -188,30 +188,7 @@ export function CreateCampaignModal({
 
       if (listError) throw listError;
 
-      // Insert leads as contacts
-      const contacts = leads.map(lead => ({
-        list_id: list.id,
-        user_id: user.id,
-        name: lead.name,
-        phone: lead.phone,
-        extra_data: {
-          source: 'google_maps_campaign',
-          address: lead.address,
-          category: lead.category,
-          rating: lead.rating,
-          place_id: lead.place_id,
-          captured_at: new Date().toISOString(),
-        },
-        is_valid: true,
-      }));
-
-      const { error: contactsError } = await supabase
-        .from('contacts')
-        .insert(contacts);
-
-      if (contactsError) throw contactsError;
-
-      // Also insert into leads table
+      // Insert leads into leads table (single source of truth)
       const leadsData = leads.map(lead => ({
         user_id: user.id,
         list_id: list.id,
@@ -225,16 +202,36 @@ export function CreateCampaignModal({
         nome_fantasia: lead.nomeFantasia || null,
         email: lead.email_oficial || null,
         situacao: lead.situacao_cadastral || null,
+        porte_empresa: lead.porte || null,
+        capital_social: lead.capital_social?.toString() || null,
         socios: lead.socios ? JSON.parse(JSON.stringify(lead.socios)) : null,
         source: 'google_maps',
         status: 'novo',
+        extra_data: {
+          rating: lead.rating,
+          reviews_count: lead.reviews_count,
+          website: lead.website,
+          latitude: lead.latitude,
+          longitude: lead.longitude,
+          place_id: lead.place_id,
+          captured_at: new Date().toISOString(),
+        },
       }));
 
       const { error: leadsError } = await supabase
         .from('leads')
         .insert(leadsData);
 
-      if (leadsError) console.error('Error inserting leads:', leadsError);
+      if (leadsError) throw leadsError;
+
+      // Update list contact_count
+      await supabase
+        .from('lists')
+        .update({ 
+          contact_count: leadsData.length,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', list.id);
 
       // Convert leads to contact format for campaign
       const campaignContacts = leads.map(lead => ({
