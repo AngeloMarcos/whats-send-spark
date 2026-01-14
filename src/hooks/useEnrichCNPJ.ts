@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { Lead, Socio } from './useGooglePlaces';
 import { supabase } from '@/integrations/supabase/client';
+import { fetchCNPJBiz, searchCNPJByName as searchCNPJBiz } from '@/lib/cnpjBizClient';
 
 export interface EnrichmentProgress {
   current: number;
@@ -41,11 +42,52 @@ interface CNPJSearchResult {
   }>;
   similarity: number;
   message?: string;
+  source?: 'cnpj_biz' | 'google_cse' | 'brasil_api';
 }
 
 export function useEnrichCNPJ() {
   const [isEnriching, setIsEnriching] = useState(false);
   const [progress, setProgress] = useState<EnrichmentProgress>({ current: 0, total: 0, status: '' });
+
+  // Calculate name similarity for matching
+  const calculateNameSimilarity = useCallback((
+    searchName: string,
+    razaoSocial?: string,
+    nomeFantasia?: string
+  ): number => {
+    const normalize = (s: string) => s
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\b(ltda|me|epp|eireli|s\.?a\.?|ss|sociedade|servicos?|comercio|industria|restaurante|lanchonete|pizzaria|padaria|supermercado|mercado|loja|bar|cafe|hotel|pousada)\b/gi, '')
+      .replace(/[^\w\s]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const searchNorm = normalize(searchName);
+    const razaoNorm = razaoSocial ? normalize(razaoSocial) : '';
+    const fantasiaNorm = nomeFantasia ? normalize(nomeFantasia) : '';
+
+    // Check if one contains the other
+    const checkContains = (a: string, b: string): number => {
+      if (!a || !b) return 0;
+      if (a === b) return 1.0;
+      if (a.includes(b) || b.includes(a)) return 0.85;
+      
+      const wordsA = a.split(' ').filter(w => w.length > 2);
+      const wordsB = b.split(' ').filter(w => w.length > 2);
+      
+      if (wordsA.length === 0 || wordsB.length === 0) return 0;
+      
+      const matches = wordsA.filter(w => wordsB.some(wb => wb.includes(w) || w.includes(wb)));
+      return matches.length / Math.max(wordsA.length, wordsB.length);
+    };
+
+    const simRazao = checkContains(searchNorm, razaoNorm);
+    const simFantasia = checkContains(searchNorm, fantasiaNorm);
+
+    return Math.max(simRazao, simFantasia);
+  }, []);
 
   // Extract CNPJ from lead data (rarely works with Google Maps data)
   const extractCNPJ = useCallback((lead: Lead): string | null => {
@@ -98,7 +140,54 @@ export function useEnrichCNPJ() {
     return { city, state };
   }, []);
 
-  // Search CNPJ by company name using Edge Function (now returns complete data)
+  // Search CNPJ using CNPJ Biz API (primary source)
+  const buscarCNPJBiz = useCallback(async (
+    companyName: string,
+    city: string,
+    state: string
+  ): Promise<CNPJSearchResult> => {
+    try {
+      console.log(`[CNPJ Biz] Searching for: ${companyName} in ${city}/${state}`);
+      
+      const result = await searchCNPJBiz(companyName, city, state);
+      
+      if (!result || result.status === 'ERROR') {
+        console.log('[CNPJ Biz] No result found');
+        return { cnpj: null, similarity: 0 };
+      }
+      
+      // Calculate similarity
+      const similarity = calculateNameSimilarity(companyName, result.razao_social, result.nome_fantasia);
+      
+      console.log(`[CNPJ Biz] Found: ${result.cnpj} (${result.razao_social}) with similarity ${similarity.toFixed(2)}`);
+      
+      // Map CNPJ Biz response to expected format
+      return {
+        cnpj: result.cnpj?.replace(/\D/g, '') || null,
+        razao_social: result.razao_social,
+        nome_fantasia: result.nome_fantasia,
+        municipio: result.municipio,
+        uf: result.uf,
+        situacao: result.situacao_cadastral,
+        porte: result.porte,
+        capital_social: result.capital_social,
+        email: result.email,
+        telefone_1: result.telefone,
+        qsa: result.qsa?.map(s => ({
+          nome_socio: s.nome,
+          qualificacao_socio: s.qualificacao,
+          identificador_de_socio: 2, // Assume PF for now
+        })) || [],
+        similarity,
+        source: 'cnpj_biz'
+      };
+    } catch (error) {
+      console.error('[CNPJ Biz] Error:', error);
+      return { cnpj: null, similarity: 0 };
+    }
+  }, [calculateNameSimilarity]);
+
+  // Search CNPJ by company name using Edge Function (fallback - Google CSE + OpenCNPJ)
   const buscarCNPJPorNome = useCallback(async (
     companyName: string,
     city: string,
@@ -134,7 +223,8 @@ export function useEnrichCNPJ() {
         telefone_2: data?.telefone_2,
         qsa: data?.qsa || [],
         similarity: data?.similarity || 0,
-        message: data?.message
+        message: data?.message,
+        source: 'google_cse'
       };
     } catch (error) {
       console.error('Error in buscarCNPJPorNome:', error);
@@ -219,28 +309,48 @@ export function useEnrichCNPJ() {
         let foundByName = false;
         let cnpjData: CNPJSearchResult | null = null;
         
-        // Step 2: If no CNPJ found, search by company name
+        // Step 2: If no CNPJ found, try CNPJ Biz first (primary source)
         if (!cnpj) {
+          const { city, state } = overrideLocation || extractCityState(lead.address);
+          
+          // Try CNPJ Biz first (more reliable paid API)
           setProgress({ 
             current: i + 1, 
             total: leads.length, 
-            status: `🔍 Buscando CNPJ: ${lead.name.substring(0, 25)}...`,
+            status: `🔍 Buscando CNPJ (Biz): ${lead.name.substring(0, 25)}...`,
             step: 'searching_cnpj'
           });
           
-          // Use override location if provided, otherwise extract from address
-          const { city, state } = overrideLocation || extractCityState(lead.address);
-          const result = await buscarCNPJPorNome(lead.name, city, state, lead.address);
+          const bizResult = await buscarCNPJBiz(lead.name, city, state);
           
-          // Accept matches with similarity >= 0.45 (aligned with backend)
-          if (result.cnpj && result.similarity >= 0.45) {
-            cnpj = result.cnpj;
-            cnpjData = result;
+          if (bizResult.cnpj && bizResult.similarity >= 0.45) {
+            cnpj = bizResult.cnpj;
+            cnpjData = bizResult;
             foundByName = true;
             cnpjFoundByNameCount++;
-            console.log(`Found CNPJ ${cnpj} for ${lead.name} with similarity ${result.similarity.toFixed(2)}`);
-          } else if (result.cnpj) {
-            console.log(`Rejected CNPJ ${result.cnpj} for ${lead.name} - similarity too low: ${result.similarity.toFixed(2)}`);
+            console.log(`[CNPJ Biz] ✓ Found ${cnpj} for ${lead.name} with similarity ${bizResult.similarity.toFixed(2)}`);
+          } else {
+            // Fallback to Google CSE + OpenCNPJ
+            console.log(`[CNPJ Biz] Not found or low similarity, trying Google CSE...`);
+            
+            setProgress({ 
+              current: i + 1, 
+              total: leads.length, 
+              status: `🔍 Buscando CNPJ (CSE): ${lead.name.substring(0, 25)}...`,
+              step: 'searching_cnpj'
+            });
+            
+            const cseResult = await buscarCNPJPorNome(lead.name, city, state, lead.address);
+            
+            if (cseResult.cnpj && cseResult.similarity >= 0.45) {
+              cnpj = cseResult.cnpj;
+              cnpjData = cseResult;
+              foundByName = true;
+              cnpjFoundByNameCount++;
+              console.log(`[Google CSE] ✓ Found ${cnpj} for ${lead.name} with similarity ${cseResult.similarity.toFixed(2)}`);
+            } else if (cseResult.cnpj) {
+              console.log(`[Google CSE] Rejected ${cseResult.cnpj} - similarity too low: ${cseResult.similarity.toFixed(2)}`);
+            }
           }
           
           // Small delay between CNPJ searches
@@ -465,7 +575,7 @@ export function useEnrichCNPJ() {
     console.log(`Enrichment complete. CNPJs found by name: ${cnpjFoundByNameCount}`);
     
     return enrichedLeads;
-  }, [extractCNPJ, extractCityState, buscarCNPJPorNome, formatarTelefoneBR, buscarTelefonesSocio]);
+  }, [extractCNPJ, extractCityState, buscarCNPJBiz, buscarCNPJPorNome, formatarTelefoneBR, buscarTelefonesSocio]);
 
   // Calculate enrichment metrics
   const calculateMetrics = useCallback((leads: Lead[]): EnrichmentMetrics => {
