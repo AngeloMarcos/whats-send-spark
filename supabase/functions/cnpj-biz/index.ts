@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 const CNPJ_BIZ_API_KEY = Deno.env.get('CNPJ_BIZ_API_KEY');
-const CNPJ_BIZ_BASE_URL = 'https://api.cnpjbiz.com.br/api';
+const CNPJ_BIZ_BASE_URL = 'https://api.cnpj.biz';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
