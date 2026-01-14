@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 const CNPJ_BIZ_API_KEY = Deno.env.get('CNPJ_BIZ_API_KEY');
-const CNPJ_BIZ_BASE_URL = 'https://api.cnpj.biz';
+const CNPJ_BIZ_BASE_URL = 'https://api.cnpjbiz.com.br/api/v1';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -58,7 +58,7 @@ serve(async (req) => {
       const cleanCNPJ = cnpj.replace(/\D/g, '');
       console.log(`[cnpj-biz] Fetching CNPJ: ${cleanCNPJ}`);
       
-      const res = await fetch(`${CNPJ_BIZ_BASE_URL}/${cleanCNPJ}`, {
+      const res = await fetch(`${CNPJ_BIZ_BASE_URL}/cnpj/${cleanCNPJ}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${CNPJ_BIZ_API_KEY}`,
