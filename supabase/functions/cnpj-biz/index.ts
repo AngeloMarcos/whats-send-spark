@@ -170,6 +170,22 @@ serve(async (req) => {
 
     let result: CNPJBizResponse | null = null;
 
+    // Debug: log if API key is present (not the value)
+    console.log(`[cnpj-biz] API key configured: ${CNPJ_BIZ_API_KEY ? 'yes (length: ' + CNPJ_BIZ_API_KEY.length + ')' : 'NO'}`);
+
+    // Special action to test token validity
+    if (action === 'test-token') {
+      const testUrl = `${CNPJ_BIZ_BASE_URL}/consumo?token=${CNPJ_BIZ_API_KEY}`;
+      console.log(`[cnpj-biz] Testing token at: ${CNPJ_BIZ_BASE_URL}/consumo`);
+      const res = await fetch(testUrl, { method: 'GET' });
+      const txt = await res.text();
+      console.log(`[cnpj-biz] Token test result: ${res.status} - ${txt.substring(0, 200)}`);
+      return new Response(
+        JSON.stringify({ status: res.status, body: txt }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     if (action === 'fetch' && cnpj) {
       // Fetch by CNPJ
       const cleanCNPJ = String(cnpj).replace(/\D/g, '');
