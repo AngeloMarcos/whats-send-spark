@@ -2,9 +2,8 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 const CNPJ_BIZ_API_KEY = Deno.env.get('CNPJ_BIZ_API_KEY');
 
-// CNPJ Biz was migrated under the CNPJws umbrella. Commercial API base URL:
-// Docs: https://docs.cnpj.ws/en/api-reference/api-comercial
-const CNPJ_BIZ_BASE_URL = 'https://comercial.cnpj.ws';
+// CNPJ Biz API - https://cnpj.biz/app/api
+const CNPJ_BIZ_BASE_URL = 'https://api.cnpjbiz.com.br/api/v1';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -54,8 +53,8 @@ function pickFirstArray(payload: any): any[] {
 function normalizeToCNPJBizResponse(payload: any): CNPJBizResponse | null {
   if (!payload || typeof payload !== 'object') return null;
 
-  // The commercial API returns nested objects. We map defensively.
-  const estabelecimento = payload.estabelecimento ?? payload.establishment ?? payload.empresa ?? {};
+  // The API may return nested objects. We map defensively.
+  const estabelecimento = payload.estabelecimento ?? payload.establishment ?? payload.empresa ?? payload;
   const municipioObj = estabelecimento.municipio ?? estabelecimento.cidade ?? estabelecimento.city ?? {};
 
   const cnpj = (
@@ -66,7 +65,7 @@ function normalizeToCNPJBizResponse(payload: any): CNPJBizResponse | null {
     payload.cnpj_formatado
   );
 
-  const razao_social = payload.razao_social ?? payload.razao ?? payload.nome ?? '';
+  const razao_social = payload.razao_social ?? payload.razao ?? payload.nome ?? estabelecimento.razao_social ?? '';
   const nome_fantasia = estabelecimento.nome_fantasia ?? payload.nome_fantasia ?? '';
 
   // Phones can come in multiple fields
@@ -81,16 +80,16 @@ function normalizeToCNPJBizResponse(payload: any): CNPJBizResponse | null {
   const email = estabelecimento.email ?? payload.email ?? '';
 
   const municipio =
-    municipioObj.nome ??
+    (typeof municipioObj === 'string' ? municipioObj : municipioObj.nome) ??
     municipioObj.municipio ??
     estabelecimento.municipio ??
     payload.municipio ??
     '';
 
   const uf =
+    estabelecimento.uf ??
     municipioObj.uf ??
     municipioObj.estado ??
-    estabelecimento.uf ??
     payload.uf ??
     '';
 
@@ -106,17 +105,18 @@ function normalizeToCNPJBizResponse(payload: any): CNPJBizResponse | null {
     payload.data_situacao_cadastral ??
     '';
 
-  const porte = payload.porte ?? '';
-  const natureza_juridica = payload.natureza_juridica ?? '';
-  const capital_social = Number(payload.capital_social ?? 0);
+  const porte = payload.porte ?? estabelecimento.porte ?? '';
+  const natureza_juridica = payload.natureza_juridica ?? estabelecimento.natureza_juridica ?? '';
+  const capital_social = Number(payload.capital_social ?? estabelecimento.capital_social ?? 0);
 
   const data_inicio_atividade =
     estabelecimento.data_inicio_atividade ??
     payload.data_inicio_atividade ??
     payload.data_abertura ??
+    estabelecimento.data_abertura ??
     '';
 
-  const socios = payload.socios ?? payload.qsa ?? payload.quadro_societario ?? [];
+  const socios = payload.socios ?? payload.qsa ?? payload.quadro_societario ?? estabelecimento.socios ?? [];
   const qsa = Array.isArray(socios)
     ? socios.map((s: any) => ({
         nome: s.nome ?? s.nome_socio ?? '',
@@ -168,38 +168,28 @@ serve(async (req) => {
       );
     }
 
-    let result: CNPJBizResponse | null = null;
-
     // Debug: log if API key is present (not the value)
-    console.log(`[cnpj-biz] API key configured: ${CNPJ_BIZ_API_KEY ? 'yes (length: ' + CNPJ_BIZ_API_KEY.length + ')' : 'NO'}`);
+    console.log(`[cnpj-biz] API key configured: yes (length: ${CNPJ_BIZ_API_KEY.length})`);
 
-    // Special action to test token validity
-    if (action === 'test-token') {
-      const testUrl = `${CNPJ_BIZ_BASE_URL}/consumo?token=${CNPJ_BIZ_API_KEY}`;
-      console.log(`[cnpj-biz] Testing token at: ${CNPJ_BIZ_BASE_URL}/consumo`);
-      const res = await fetch(testUrl, { method: 'GET' });
-      const txt = await res.text();
-      console.log(`[cnpj-biz] Token test result: ${res.status} - ${txt.substring(0, 200)}`);
-      return new Response(
-        JSON.stringify({ status: res.status, body: txt }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    // Common headers with Bearer token authentication
+    const apiHeaders = {
+      'Authorization': `Bearer ${CNPJ_BIZ_API_KEY}`,
+      'Content-Type': 'application/json',
+    };
+
+    let result: CNPJBizResponse | null = null;
 
     if (action === 'fetch' && cnpj) {
       // Fetch by CNPJ
       const cleanCNPJ = String(cnpj).replace(/\D/g, '');
       console.log(`[cnpj-biz] Fetching CNPJ: ${cleanCNPJ}`);
 
-      // Use token as query param (alternative auth method per docs)
-      const fetchUrl = `${CNPJ_BIZ_BASE_URL}/cnpj/${cleanCNPJ}?token=${CNPJ_BIZ_API_KEY}`;
-      console.log(`[cnpj-biz] Fetching URL: ${CNPJ_BIZ_BASE_URL}/cnpj/${cleanCNPJ}?token=***`);
+      const fetchUrl = `${CNPJ_BIZ_BASE_URL}/cnpj/${cleanCNPJ}`;
+      console.log(`[cnpj-biz] Fetching URL: ${fetchUrl}`);
       
       const res = await fetch(fetchUrl, {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: apiHeaders,
       });
 
       if (!res.ok) {
@@ -212,24 +202,18 @@ serve(async (req) => {
       }
 
       const payload = await res.json();
+      console.log(`[cnpj-biz] Raw response keys: ${Object.keys(payload).join(', ')}`);
       result = normalizeToCNPJBizResponse(payload);
       console.log(`[cnpj-biz] Fetch success for ${cleanCNPJ}. Normalized: ${result ? 'yes' : 'no'}`);
 
     } else if (action === 'search' && companyName) {
-      // Search by company name (we only filter by razao_social; city/state require cidade_id)
-      // Use token as query param (alternative auth method per docs)
-      const searchParams = new URLSearchParams({ 
-        razao_social: String(companyName),
-        token: CNPJ_BIZ_API_KEY || ''
-      });
-      const searchUrl = `${CNPJ_BIZ_BASE_URL}/pesquisa?${searchParams}`;
-      console.log(`[cnpj-biz] Searching: ${CNPJ_BIZ_BASE_URL}/pesquisa?razao_social=${encodeURIComponent(companyName)}&token=***`);
+      // Search by company name
+      const searchUrl = `${CNPJ_BIZ_BASE_URL}/search?q=${encodeURIComponent(String(companyName))}`;
+      console.log(`[cnpj-biz] Searching: ${searchUrl}`);
 
       const res = await fetch(searchUrl, {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: apiHeaders,
       });
 
       if (!res.ok) {
@@ -242,6 +226,7 @@ serve(async (req) => {
       }
 
       const payload = await res.json();
+      console.log(`[cnpj-biz] Raw response keys: ${Object.keys(payload).join(', ')}`);
       const items = pickFirstArray(payload);
       const first = items[0] ?? null;
       result = normalizeToCNPJBizResponse(first);
