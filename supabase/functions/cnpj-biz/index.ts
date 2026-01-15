@@ -156,9 +156,9 @@ serve(async (req) => {
   }
 
   try {
-    const { action, cnpj, companyName } = await req.json();
+    const { action, cnpj, companyName, city, state } = await req.json();
     console.log(`[cnpj-biz] Base URL: ${CNPJ_BIZ_BASE_URL}`);
-    console.log(`[cnpj-biz] Action: ${action}, CNPJ: ${cnpj}, Company: ${companyName}`);
+    console.log(`[cnpj-biz] Action: ${action}, CNPJ: ${cnpj}, Company: ${companyName}, City: ${city}, State: ${state}`);
 
     if (!CNPJ_BIZ_API_KEY) {
       console.error('[cnpj-biz] API key not configured');
@@ -187,10 +187,21 @@ serve(async (req) => {
       const fetchUrl = `${CNPJ_BIZ_BASE_URL}/cnpj/${cleanCNPJ}`;
       console.log(`[cnpj-biz] Fetching URL: ${fetchUrl}`);
       
-      const res = await fetch(fetchUrl, {
-        method: 'GET',
-        headers: apiHeaders,
-      });
+      let res: Response;
+      try {
+        res = await fetch(fetchUrl, {
+          method: 'GET',
+          headers: apiHeaders,
+        });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[cnpj-biz] Network error (fetch): ${msg}`);
+        // Return 200 to allow the frontend to gracefully fall back to other sources
+        return new Response(
+          JSON.stringify({ data: null, error: 'CNPJ Biz unreachable', details: msg }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
 
       if (!res.ok) {
         const errorText = await res.text();
@@ -208,13 +219,28 @@ serve(async (req) => {
 
     } else if (action === 'search' && companyName) {
       // Search by company name
-      const searchUrl = `${CNPJ_BIZ_BASE_URL}/search?q=${encodeURIComponent(String(companyName))}`;
+      const params = new URLSearchParams({ q: String(companyName) });
+      if (city) params.set('cidade', String(city));
+      if (state) params.set('uf', String(state));
+
+      const searchUrl = `${CNPJ_BIZ_BASE_URL}/search?${params.toString()}`;
       console.log(`[cnpj-biz] Searching: ${searchUrl}`);
 
-      const res = await fetch(searchUrl, {
-        method: 'GET',
-        headers: apiHeaders,
-      });
+      let res: Response;
+      try {
+        res = await fetch(searchUrl, {
+          method: 'GET',
+          headers: apiHeaders,
+        });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[cnpj-biz] Network error (search): ${msg}`);
+        // Return 200 to allow the frontend to gracefully fall back to other sources
+        return new Response(
+          JSON.stringify({ data: null, error: 'CNPJ Biz unreachable', details: msg }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
 
       if (!res.ok) {
         const errorText = await res.text();
