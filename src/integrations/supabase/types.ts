@@ -903,6 +903,45 @@ export type Database = {
         }
         Relationships: []
       }
+      stella_onboarding: {
+        Row: {
+          business_name: string
+          business_segment: string
+          client_email: string
+          client_name: string
+          client_phone: string
+          created_at: string
+          form_data: Json
+          id: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          business_name: string
+          business_segment: string
+          client_email: string
+          client_name: string
+          client_phone: string
+          created_at?: string
+          form_data?: Json
+          id?: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          business_name?: string
+          business_segment?: string
+          client_email?: string
+          client_name?: string
+          client_phone?: string
+          created_at?: string
+          form_data?: Json
+          id?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       templates: {
         Row: {
           category: string | null

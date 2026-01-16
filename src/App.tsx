@@ -14,6 +14,7 @@ import NotFound from "./pages/NotFound";
 import LeadCapture from "./pages/LeadCapture";
 import AdvancedSearch from "./pages/AdvancedSearch";
 import Errors from "./pages/Errors";
+import StellaOnboarding from "./pages/StellaOnboarding";
 
 const queryClient = new QueryClient();
 
@@ -36,6 +37,8 @@ const App = () => (
             <Route path="/settings" element={<Settings />} />
             <Route path="/erros" element={<Errors />} />
             <Route path="/auth" element={<Auth />} />
+            <Route path="/onboarding" element={<StellaOnboarding />} />
+            <Route path="/configurar-stella" element={<StellaOnboarding />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
