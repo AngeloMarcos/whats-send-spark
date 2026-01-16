@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import { Lead, Socio } from './useGooglePlaces';
 import { supabase } from '@/integrations/supabase/client';
 import { fetchCNPJBiz, searchCNPJByName as searchCNPJBiz } from '@/lib/cnpjBizClient';
+import { saveLeadsToSupabase } from '@/services/leads/saveLeadsToSupabase';
 
 export interface EnrichmentProgress {
   current: number;
@@ -289,10 +290,12 @@ export function useEnrichCNPJ() {
   }, []);
 
   // Main enrichment function
+  // Agora recebe userId para salvar leads automaticamente no Supabase
   const enriquecerLeads = useCallback(async (
     leads: Lead[],
     buscarTelefonesSocios: boolean = false,
-    overrideLocation?: { city: string; state: string }
+    overrideLocation?: { city: string; state: string },
+    userId?: string // Novo parâmetro para salvar no Supabase
   ): Promise<Lead[]> => {
     setIsEnriching(true);
     setProgress({ current: 0, total: leads.length, status: 'Iniciando enriquecimento...', step: 'searching_cnpj' });
@@ -570,9 +573,20 @@ export function useEnrichCNPJ() {
     }
     
     setProgress({ current: leads.length, total: leads.length, status: '✅ Enriquecimento concluído!', step: 'done' });
-    setIsEnriching(false);
     
     console.log(`Enrichment complete. CNPJs found by name: ${cnpjFoundByNameCount}`);
+    
+    // === CONEXÃO: Pesquisa de Leads → Insert no Supabase (public.leads) ===
+    // Todos os resultados são salvos com status='pending' para processamento posterior pelo n8n
+    if (userId) {
+      setProgress({ current: leads.length, total: leads.length, status: '💾 Salvando leads no banco...', step: 'done' });
+      const { saved, errors } = await saveLeadsToSupabase(enrichedLeads, userId);
+      console.log(`[Leads] Salvos no Supabase: ${saved}, Erros: ${errors}`);
+    } else {
+      console.warn('[useEnrichCNPJ] userId não fornecido - leads não serão salvos no Supabase');
+    }
+    
+    setIsEnriching(false);
     
     return enrichedLeads;
   }, [extractCNPJ, extractCityState, buscarCNPJBiz, buscarCNPJPorNome, formatarTelefoneBR, buscarTelefonesSocio]);

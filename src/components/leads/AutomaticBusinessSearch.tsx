@@ -3,6 +3,7 @@ import { Search, MapPin, Building2, Loader2, Sparkles, Users, Mail, Phone, Info 
 import { useGooglePlaces, Lead } from '@/hooks/useGooglePlaces';
 import { useIBGELocalidades, Localidade } from '@/hooks/useIBGELocalidades';
 import { useEnrichCNPJ } from '@/hooks/useEnrichCNPJ';
+import { useAuth } from '@/hooks/useAuth';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -14,6 +15,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { toast } from 'sonner';
 import { AutoSearchResultsTable } from './AutoSearchResultsTable';
 import { LeadActions } from './LeadActions';
 import { cn } from '@/lib/utils';
@@ -56,6 +58,7 @@ export function AutomaticBusinessSearch() {
   const { searchLocalidades, isLoading: loadingCidades } = useIBGELocalidades();
   const { leads: rawLeads, isLoading, error, metrics, searchPlaces } = useGooglePlaces();
   const { enriquecerLeads, isEnriching, progress, calculateMetrics } = useEnrichCNPJ();
+  const { user } = useAuth(); // Pegar o userId do usuário autenticado
 
   // Use enriched leads if available, otherwise use raw leads
   const leads = enrichedLeads.length > 0 ? enrichedLeads : rawLeads;
@@ -97,13 +100,24 @@ export function AutomaticBusinessSearch() {
     });
 
     // Auto-enrich if enabled, passing the selected city for better accuracy
+    // O userId é passado para que os leads sejam salvos automaticamente no Supabase
     if (enrichEnabled && results && results.length > 0) {
+      if (!user?.id) {
+        toast.error('Usuário não autenticado. Os leads não serão salvos no banco.');
+        console.error('[AutomaticBusinessSearch] userId não disponível - leads não serão salvos');
+      }
+      
       const enriched = await enriquecerLeads(
         results, 
         searchPartnerPhones,
-        cidadeSelecionada ? { city: cidadeSelecionada.nome, state: cidadeSelecionada.uf } : undefined
+        cidadeSelecionada ? { city: cidadeSelecionada.nome, state: cidadeSelecionada.uf } : undefined,
+        user?.id // Passar userId para salvar leads automaticamente no Supabase
       );
       setEnrichedLeads(enriched);
+      
+      if (user?.id) {
+        toast.success(`${enriched.length} leads salvos no banco com sucesso!`);
+      }
     }
   };
 
