@@ -1,3 +1,4 @@
+import { memo, useMemo } from 'react';
 import { MessageSquare, Send, List, FileText, Settings, LogOut, MapPin, AlertCircle, Search, Users } from 'lucide-react';
 import { NavLink as RouterNavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
@@ -24,11 +25,49 @@ const menuItems = [
   { title: 'Templates', url: '/templates', icon: FileText },
   { title: 'Configurações', url: '/settings', icon: Settings },
   { title: 'Erros', url: '/erros', icon: AlertCircle },
-];
+] as const;
 
-export function AppSidebar() {
+// Memoized menu item for performance
+const MenuItem = memo(function MenuItem({ 
+  item, 
+  isActive 
+}: { 
+  item: typeof menuItems[number]; 
+  isActive: boolean;
+}) {
+  const Icon = item.icon;
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton asChild isActive={isActive}>
+        <RouterNavLink 
+          to={item.url}
+          className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-colors ${
+            isActive 
+              ? 'bg-sidebar-primary text-sidebar-primary-foreground' 
+              : 'text-sidebar-foreground hover:bg-sidebar-accent'
+          }`}
+        >
+          <Icon className="h-5 w-5" />
+          <span>{item.title}</span>
+        </RouterNavLink>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
+});
+
+export const AppSidebar = memo(function AppSidebar() {
   const location = useLocation();
   const { signOut, user } = useAuth();
+
+  const menuContent = useMemo(() => (
+    menuItems.map((item) => (
+      <MenuItem 
+        key={item.title} 
+        item={item} 
+        isActive={location.pathname === item.url} 
+      />
+    ))
+  ), [location.pathname]);
 
   return (
     <Sidebar className="border-r border-sidebar-border">
@@ -49,26 +88,7 @@ export function AppSidebar() {
           <SidebarGroupLabel className="text-sidebar-foreground/50">Menu</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {menuItems.map((item) => {
-                const isActive = location.pathname === item.url;
-                return (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton asChild isActive={isActive}>
-                      <RouterNavLink 
-                        to={item.url}
-                        className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-colors ${
-                          isActive 
-                            ? 'bg-sidebar-primary text-sidebar-primary-foreground' 
-                            : 'text-sidebar-foreground hover:bg-sidebar-accent'
-                        }`}
-                      >
-                        <item.icon className="h-5 w-5" />
-                        <span>{item.title}</span>
-                      </RouterNavLink>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
+              {menuContent}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -92,4 +112,4 @@ export function AppSidebar() {
       </SidebarFooter>
     </Sidebar>
   );
-}
+});

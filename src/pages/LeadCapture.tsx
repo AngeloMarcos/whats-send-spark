@@ -1,19 +1,33 @@
-import { useState } from 'react';
+import { useState, lazy, Suspense, memo } from 'react';
 import { MapPin, Search, Phone, Clock, TrendingUp, AlertTriangle, RefreshCw, FolderOpen, FileSearch, Sparkles } from 'lucide-react';
 import { useGooglePlaces, SearchMetrics } from '@/hooks/useGooglePlaces';
-import { SearchForm } from '@/components/leads/SearchForm';
-import { ResultsTable } from '@/components/leads/ResultsTable';
-import { LeadActions } from '@/components/leads/LeadActions';
-import { CNPJSearchModal } from '@/components/leads/CNPJSearchModal';
-import { ListsManager } from '@/components/leads/ListsManager';
-import { AutomaticBusinessSearch } from '@/components/leads/AutomaticBusinessSearch';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
 import { Button } from '@/components/ui/button';
-function StatsCards({ metrics }: { metrics: SearchMetrics }) {
+import { Skeleton } from '@/components/ui/skeleton';
+
+// Lazy load heavy components for better performance on weak devices
+const SearchForm = lazy(() => import('@/components/leads/SearchForm').then(m => ({ default: m.SearchForm })));
+const ResultsTable = lazy(() => import('@/components/leads/ResultsTable').then(m => ({ default: m.ResultsTable })));
+const LeadActions = lazy(() => import('@/components/leads/LeadActions').then(m => ({ default: m.LeadActions })));
+const CNPJSearchModal = lazy(() => import('@/components/leads/CNPJSearchModal').then(m => ({ default: m.CNPJSearchModal })));
+const ListsManager = lazy(() => import('@/components/leads/ListsManager').then(m => ({ default: m.ListsManager })));
+const AutomaticBusinessSearch = lazy(() => import('@/components/leads/AutomaticBusinessSearch').then(m => ({ default: m.AutomaticBusinessSearch })));
+
+// Loading fallback for lazy components
+const ComponentLoader = memo(function ComponentLoader() {
+  return (
+    <div className="space-y-4">
+      <Skeleton className="h-32 w-full" />
+      <Skeleton className="h-48 w-full" />
+    </div>
+  );
+});
+
+const StatsCards = memo(function StatsCards({ metrics }: { metrics: SearchMetrics }) {
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
       <Card>
@@ -73,7 +87,7 @@ function StatsCards({ metrics }: { metrics: SearchMetrics }) {
       </Card>
     </div>
   );
-}
+});
 
 export default function LeadCapture() {
   const { leads, isLoading, error, metrics, searchPlaces } = useGooglePlaces();
@@ -119,11 +133,6 @@ export default function LeadCapture() {
           </Button>
         </div>
 
-        {/* Modal de busca CNPJ */}
-        <CNPJSearchModal
-          open={showCNPJModal}
-          onOpenChange={setShowCNPJModal}
-        />
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="grid w-full grid-cols-3 max-w-lg">
             <TabsTrigger value="google-maps" className="flex items-center gap-2">
@@ -142,7 +151,9 @@ export default function LeadCapture() {
 
           {/* Google Maps Tab */}
           <div className={`space-y-6 mt-6 ${activeTab === 'google-maps' ? 'block' : 'hidden'}`}>
-            <SearchForm onSearch={handleSearch} isLoading={isLoading} />
+            <Suspense fallback={<ComponentLoader />}>
+              <SearchForm onSearch={handleSearch} isLoading={isLoading} />
+            </Suspense>
 
             {error && (
               <Alert variant="destructive">
@@ -153,14 +164,18 @@ export default function LeadCapture() {
             {metrics && <StatsCards metrics={metrics} />}
 
             {leads.length > 0 && (
-              <LeadActions leads={leads} selectedLeads={selectedLeads} />
+              <Suspense fallback={<ComponentLoader />}>
+                <LeadActions leads={leads} selectedLeads={selectedLeads} />
+              </Suspense>
             )}
 
-            <ResultsTable
-              leads={leads}
-              selectedLeads={selectedLeads}
-              onSelectionChange={setSelectedLeads}
-            />
+            <Suspense fallback={<ComponentLoader />}>
+              <ResultsTable
+                leads={leads}
+                selectedLeads={selectedLeads}
+                onSelectionChange={setSelectedLeads}
+              />
+            </Suspense>
           </div>
 
           {/* Automatic Search Tab */}
@@ -186,7 +201,9 @@ export default function LeadCapture() {
                 </Card>
               }
             >
-              <AutomaticBusinessSearch />
+              <Suspense fallback={<ComponentLoader />}>
+                <AutomaticBusinessSearch />
+              </Suspense>
             </ErrorBoundary>
           </div>
 
@@ -202,10 +219,20 @@ export default function LeadCapture() {
                 </Card>
               }
             >
-              <ListsManager />
+              <Suspense fallback={<ComponentLoader />}>
+                <ListsManager />
+              </Suspense>
             </ErrorBoundary>
           </div>
         </Tabs>
+
+        {/* CNPJ Search Modal */}
+        <Suspense fallback={null}>
+          <CNPJSearchModal
+            open={showCNPJModal}
+            onOpenChange={setShowCNPJModal}
+          />
+        </Suspense>
       </div>
     </AppLayout>
   );
