@@ -461,6 +461,7 @@ export type Database = {
           endereco: string | null
           extra_data: Json | null
           id: string
+          last_webhook_attempt: string | null
           list_id: string | null
           lista_captura_id: string | null
           logradouro: string | null
@@ -473,6 +474,7 @@ export type Database = {
           porte_empresa: string | null
           razao_social: string | null
           regime_tributario: string | null
+          retry_count: number | null
           situacao: string | null
           socios: Json | null
           source: string | null
@@ -501,6 +503,7 @@ export type Database = {
           endereco?: string | null
           extra_data?: Json | null
           id?: string
+          last_webhook_attempt?: string | null
           list_id?: string | null
           lista_captura_id?: string | null
           logradouro?: string | null
@@ -513,6 +516,7 @@ export type Database = {
           porte_empresa?: string | null
           razao_social?: string | null
           regime_tributario?: string | null
+          retry_count?: number | null
           situacao?: string | null
           socios?: Json | null
           source?: string | null
@@ -541,6 +545,7 @@ export type Database = {
           endereco?: string | null
           extra_data?: Json | null
           id?: string
+          last_webhook_attempt?: string | null
           list_id?: string | null
           lista_captura_id?: string | null
           logradouro?: string | null
@@ -553,6 +558,7 @@ export type Database = {
           porte_empresa?: string | null
           razao_social?: string | null
           regime_tributario?: string | null
+          retry_count?: number | null
           situacao?: string | null
           socios?: Json | null
           source?: string | null
@@ -862,6 +868,9 @@ export type Database = {
           id: string
           max_messages_per_day: number | null
           max_messages_per_hour: number | null
+          n8n_webhook_last_called_at: string | null
+          n8n_webhook_last_error: string | null
+          n8n_webhook_last_status: number | null
           n8n_webhook_url: string | null
           randomize_interval: boolean | null
           send_interval_seconds: number | null
@@ -878,6 +887,9 @@ export type Database = {
           id?: string
           max_messages_per_day?: number | null
           max_messages_per_hour?: number | null
+          n8n_webhook_last_called_at?: string | null
+          n8n_webhook_last_error?: string | null
+          n8n_webhook_last_status?: number | null
           n8n_webhook_url?: string | null
           randomize_interval?: boolean | null
           send_interval_seconds?: number | null
@@ -894,6 +906,9 @@ export type Database = {
           id?: string
           max_messages_per_day?: number | null
           max_messages_per_hour?: number | null
+          n8n_webhook_last_called_at?: string | null
+          n8n_webhook_last_error?: string | null
+          n8n_webhook_last_status?: number | null
           n8n_webhook_url?: string | null
           randomize_interval?: boolean | null
           send_interval_seconds?: number | null
