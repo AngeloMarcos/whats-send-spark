@@ -81,11 +81,18 @@ export default function LeadsMonitor() {
     }
   }, [webhookUrlInput]);
 
-  // Detectar se o último erro indica workflow inativo
+  // ============================================================
+  // ALERTA DE WORKFLOW INATIVO: Mostrar APENAS se o ÚLTIMO log falhou
+  // com erro de workflow inativo. Se o último log foi sucesso, esconder.
+  // ============================================================
   const showWorkflowInactiveAlert = useMemo(() => {
-    return isWorkflowInactiveError(webhookStatus.lastCallError) || 
-           isWorkflowInactiveError(webhookStatus.lastSettingsError);
-  }, [webhookStatus.lastCallError, webhookStatus.lastSettingsError]);
+    // Se o último log foi sucesso, NÃO mostrar alerta
+    if (webhookStatus.lastCallSuccess === true) {
+      return false;
+    }
+    // Se o último log foi falha e o erro indica workflow inativo, mostrar
+    return isWorkflowInactiveError(webhookStatus.lastCallError);
+  }, [webhookStatus.lastCallSuccess, webhookStatus.lastCallError]);
 
   const handleSaveUrl = async () => {
     if (!urlValidation.valid) {
@@ -411,13 +418,13 @@ export default function LeadsMonitor() {
               </Button>
             </div>
 
-            {/* Status da última chamada */}
-            {(webhookStatus.lastCallAt || webhookStatus.lastSettingsCallAt) && (
+            {/* Status da última chamada - fonte: webhook_logs */}
+            {webhookStatus.lastCallAt && (
               <div className="flex flex-wrap items-center gap-2 text-sm">
                 <span className="text-muted-foreground">Última chamada:</span>
                 <span>
                   {formatDistanceToNow(
-                    new Date(webhookStatus.lastSettingsCallAt || webhookStatus.lastCallAt || ''), 
+                    new Date(webhookStatus.lastCallAt), 
                     { addSuffix: true, locale: ptBR }
                   )}
                 </span>
@@ -431,13 +438,10 @@ export default function LeadsMonitor() {
               </div>
             )}
 
-            {/* Exibir último erro (se houver) */}
-            {(webhookStatus.lastCallError || webhookStatus.lastSettingsError) && 
-             webhookStatus.lastCallSuccess === false && (
+            {/* Exibir último erro APENAS se o último log foi falha */}
+            {webhookStatus.lastCallError && webhookStatus.lastCallSuccess === false && (
               <div className="p-3 bg-destructive/10 rounded-md text-sm text-destructive">
-                <strong>Último erro:</strong> {
-                  (webhookStatus.lastSettingsError || webhookStatus.lastCallError || '').substring(0, 300)
-                }
+                <strong>Último erro:</strong> {webhookStatus.lastCallError.substring(0, 300)}
               </div>
             )}
           </CardContent>

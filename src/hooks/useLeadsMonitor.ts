@@ -36,18 +36,17 @@ interface MonitorStats {
   todayCount: number;
 }
 
+// Status do webhook baseado EXCLUSIVAMENTE no último log de webhook_logs
+// Os campos de settings são ignorados para evitar exibir erros antigos
 interface WebhookStatus {
   url: string | null;
   isConfigured: boolean;
+  // Fonte da verdade: último registro em webhook_logs
   lastCallAt: string | null;
   lastCallSuccess: boolean | null;
   lastCallStatusCode: number | null;
   lastCallDuration: number | null;
   lastCallError: string | null;
-  // Campos adicionais do tracking direto na settings
-  lastSettingsCallAt: string | null;
-  lastSettingsStatus: number | null;
-  lastSettingsError: string | null;
 }
 
 interface UseLeadsMonitorReturn {
@@ -126,9 +125,6 @@ export function useLeadsMonitor(autoRefreshInterval = 30000): UseLeadsMonitorRet
     lastCallStatusCode: null,
     lastCallDuration: null,
     lastCallError: null,
-    lastSettingsCallAt: null,
-    lastSettingsStatus: null,
-    lastSettingsError: null,
   });
   const [loading, setLoading] = useState(true);
 
@@ -213,18 +209,22 @@ export function useLeadsMonitor(autoRefreshInterval = 30000): UseLeadsMonitorRet
     }
   }, [user]);
 
+  // ============================================================
+  // FONTE ÚNICA DA VERDADE: webhook_logs (último registro)
+  // Ignora campos de cache em settings para evitar mostrar erros antigos
+  // ============================================================
   const fetchWebhookStatus = useCallback(async () => {
     if (!user) return;
 
     try {
-      // Buscar URL e campos de tracking das settings
+      // Buscar apenas a URL das settings
       const { data: settings } = await supabase
         .from('settings')
-        .select('n8n_webhook_url, n8n_webhook_last_status, n8n_webhook_last_error, n8n_webhook_last_called_at')
+        .select('n8n_webhook_url')
         .eq('user_id', user.id)
         .single();
 
-      // Buscar último log de webhook
+      // Buscar último log de webhook (FONTE ÚNICA DA VERDADE para status)
       const { data: lastLog } = await supabase
         .from('webhook_logs')
         .select('created_at, success, status_code, duration_ms, error_message')
@@ -233,6 +233,8 @@ export function useLeadsMonitor(autoRefreshInterval = 30000): UseLeadsMonitorRet
         .limit(1)
         .single();
 
+      // Se o último log foi sucesso, não mostrar erro
+      // Se o último log foi falha, mostrar o erro desse log
       setWebhookStatus({
         url: settings?.n8n_webhook_url || null,
         isConfigured: !!settings?.n8n_webhook_url,
@@ -240,11 +242,7 @@ export function useLeadsMonitor(autoRefreshInterval = 30000): UseLeadsMonitorRet
         lastCallSuccess: lastLog?.success ?? null,
         lastCallStatusCode: lastLog?.status_code || null,
         lastCallDuration: lastLog?.duration_ms || null,
-        lastCallError: lastLog?.error_message || null,
-        // Campos diretos das settings
-        lastSettingsCallAt: settings?.n8n_webhook_last_called_at || null,
-        lastSettingsStatus: settings?.n8n_webhook_last_status || null,
-        lastSettingsError: settings?.n8n_webhook_last_error || null,
+        lastCallError: lastLog?.success === false ? lastLog?.error_message : null,
       });
     } catch (error) {
       console.error('[useLeadsMonitor] Error fetching webhook status:', error);
@@ -408,58 +406,98 @@ export function useLeadsMonitor(autoRefreshInterval = 30000): UseLeadsMonitorRet
     }
   }, [user, fetchWebhookStatus]);
 
+  // ============================================================
+  // TESTE DE WEBHOOK: Registra o resultado em webhook_logs
+  // para que a UI reflita o status real imediatamente
+  // ============================================================
   const testWebhook = useCallback(async (): Promise<{ success: boolean; error?: string; statusCode?: number }> => {
     if (!user) return { success: false, error: 'Usuário não autenticado' };
     if (!webhookStatus.url) return { success: false, error: 'URL não configurada' };
+
+    const startTime = Date.now();
+    let statusCode = 0;
+    let success = false;
+    let errorMessage: string | null = null;
+    let responseBody = '';
 
     try {
       // Criar AbortController para timeout
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000);
       
-      const response = await fetch(webhookStatus.url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          lead_id: 'test-' + Date.now(), 
-          user_id: user.id, 
-          nome: 'Teste de Conexão', 
+      const testPayload = { 
+        lead_id: 'test-' + Date.now(), 
+        user_id: user.id, 
+        nome: 'Teste de Conexão', 
+        telefones: '5511999999999',
+        created_at: new Date().toISOString(),
+        _test: true,
+        lead: {
+          id: 'test-' + Date.now(),
+          nome_fantasia: 'Teste de Conexão',
           telefones: '5511999999999',
-          created_at: new Date().toISOString(),
-          _test: true,
-          lead: {
-            id: 'test-' + Date.now(),
-            nome_fantasia: 'Teste de Conexão',
-            telefones: '5511999999999',
+        }
+      };
+      
+      try {
+        const response = await fetch(webhookStatus.url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(testPayload),
+          signal: controller.signal,
+        });
+        
+        clearTimeout(timeoutId);
+        statusCode = response.status;
+        success = response.ok;
+        
+        if (!success) {
+          responseBody = await response.text();
+          if (responseBody.includes('workflow must be active') || responseBody.includes('not registered')) {
+            errorMessage = 'O workflow do n8n não está ativo. Ative-o no editor do n8n.';
+          } else {
+            errorMessage = `HTTP ${response.status}`;
           }
-        }),
-        signal: controller.signal,
+        }
+      } catch (fetchError) {
+        clearTimeout(timeoutId);
+        if (fetchError instanceof Error) {
+          if (fetchError.name === 'AbortError') {
+            errorMessage = 'Timeout: o webhook não respondeu em 10 segundos.';
+          } else {
+            errorMessage = `Erro de conexão: ${fetchError.message}`;
+          }
+        } else {
+          errorMessage = 'Erro de rede desconhecido';
+        }
+      }
+      
+      const durationMs = Date.now() - startTime;
+      
+      // ============================================================
+      // REGISTRAR RESULTADO DO TESTE EM webhook_logs
+      // Isso garante que a UI reflita o resultado imediatamente
+      // ============================================================
+      await supabase.from('webhook_logs').insert({
+        user_id: user.id,
+        lead_id: null, // Teste, não tem lead associado
+        webhook_url: webhookStatus.url,
+        request_payload: testPayload,
+        status_code: statusCode || null,
+        response_body: responseBody.substring(0, 2000) || null,
+        error_message: errorMessage,
+        duration_ms: durationMs,
+        success: success,
       });
       
-      clearTimeout(timeoutId);
-      
-      if (response.ok) {
-        return { success: true, statusCode: response.status };
-      } else {
-        // Tentar ler o body para detectar erro específico
-        let errorMsg = `HTTP ${response.status}`;
-        try {
-          const body = await response.text();
-          if (body.includes('workflow must be active') || body.includes('not registered')) {
-            errorMsg = 'O workflow do n8n não está ativo. Ative-o no editor do n8n.';
-          }
-        } catch { /* ignore */ }
-        
-        return { success: false, error: errorMsg, statusCode: response.status };
-      }
+      return { 
+        success, 
+        error: errorMessage || undefined, 
+        statusCode: statusCode || undefined 
+      };
     } catch (error) {
-      if (error instanceof Error) {
-        if (error.name === 'AbortError') {
-          return { success: false, error: 'Timeout: o webhook não respondeu em 10 segundos.' };
-        }
-        return { success: false, error: `Erro de conexão: ${error.message}` };
-      }
-      return { success: false, error: 'Erro de rede desconhecido' };
+      const errorMsg = error instanceof Error ? error.message : 'Erro desconhecido';
+      return { success: false, error: errorMsg };
     }
   }, [user, webhookStatus.url]);
 
