@@ -117,6 +117,31 @@ export async function saveLeadsToSupabase(
     const savedCount = data?.length || 0;
     console.log(`[saveLeadsToSupabase] ✅ Sucesso! ${savedCount} leads salvos no Supabase`);
     
+    // === NOTIFICAÇÃO AUTOMÁTICA PARA N8N ===
+    // Após salvar com sucesso, notifica o n8n via edge function
+    if (savedCount > 0 && data) {
+      const savedIds = data.map(d => d.id);
+      console.log(`[saveLeadsToSupabase] Notificando n8n sobre ${savedIds.length} novos leads...`);
+      
+      try {
+        const { data: notifyResult, error: notifyError } = await supabase.functions.invoke('notify-n8n-new-lead', {
+          body: { 
+            lead_ids: savedIds,
+            user_id: userId 
+          }
+        });
+        
+        if (notifyError) {
+          console.warn('[saveLeadsToSupabase] Aviso: Falha ao notificar n8n:', notifyError.message);
+        } else {
+          console.log('[saveLeadsToSupabase] ✅ n8n notificado:', notifyResult);
+        }
+      } catch (notifyErr) {
+        // Não bloqueia o fluxo principal se a notificação falhar
+        console.warn('[saveLeadsToSupabase] Aviso: Erro ao chamar notify-n8n:', notifyErr);
+      }
+    }
+    
     return { saved: savedCount, errors: 0, errorMessages: [] };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
