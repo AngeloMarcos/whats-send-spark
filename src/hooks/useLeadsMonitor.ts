@@ -13,6 +13,8 @@ interface LeadMonitor {
   created_at: string;
   municipio: string | null;
   uf: string | null;
+  retry_count: number | null;
+  last_webhook_attempt: string | null;
 }
 
 interface WebhookLog {
@@ -42,6 +44,10 @@ interface WebhookStatus {
   lastCallStatusCode: number | null;
   lastCallDuration: number | null;
   lastCallError: string | null;
+  // Campos adicionais do tracking direto na settings
+  lastSettingsCallAt: string | null;
+  lastSettingsStatus: number | null;
+  lastSettingsError: string | null;
 }
 
 interface UseLeadsMonitorReturn {
@@ -53,8 +59,52 @@ interface UseLeadsMonitorReturn {
   resendLead: (leadId: string) => Promise<{ success: boolean; error?: string }>;
   resendAllPending: () => Promise<{ success: boolean; sent: number; failed: number }>;
   saveWebhookUrl: (url: string) => Promise<{ success: boolean; error?: string }>;
-  testWebhook: () => Promise<{ success: boolean; error?: string }>;
+  testWebhook: () => Promise<{ success: boolean; error?: string; statusCode?: number }>;
   refetch: () => void;
+}
+
+// ============================================================
+// Helper: Valida URL do webhook no frontend
+// ============================================================
+function validateWebhookUrlClient(urlString: string): { valid: boolean; error?: string } {
+  if (!urlString || urlString.trim() === '') {
+    return { valid: true }; // URL vazia é permitida (para limpar)
+  }
+  
+  // Verificar formato básico
+  if (!urlString.startsWith('https://')) {
+    return { valid: false, error: 'A URL deve começar com https://' };
+  }
+  
+  try {
+    const url = new URL(urlString);
+    const hostname = url.hostname.toLowerCase();
+    
+    // Bloquear localhost e IPs privados
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return { valid: false, error: 'URLs locais (localhost) não são permitidas.' };
+    }
+    
+    if (hostname.startsWith('192.168.') || 
+        hostname.startsWith('10.') ||
+        hostname.match(/^172\.(1[6-9]|2[0-9]|3[0-1])\./)) {
+      return { valid: false, error: 'URLs de redes privadas não são permitidas.' };
+    }
+    
+    return { valid: true };
+  } catch {
+    return { valid: false, error: 'URL inválida. Verifique o formato.' };
+  }
+}
+
+// ============================================================
+// Helper: Detecta se o erro indica workflow inativo no n8n
+// ============================================================
+export function isWorkflowInactiveError(error: string | null): boolean {
+  if (!error) return false;
+  const lowerError = error.toLowerCase();
+  return lowerError.includes('workflow') && 
+         (lowerError.includes('ativo') || lowerError.includes('active') || lowerError.includes('not registered'));
 }
 
 export function useLeadsMonitor(autoRefreshInterval = 30000): UseLeadsMonitorReturn {
@@ -76,6 +126,9 @@ export function useLeadsMonitor(autoRefreshInterval = 30000): UseLeadsMonitorRet
     lastCallStatusCode: null,
     lastCallDuration: null,
     lastCallError: null,
+    lastSettingsCallAt: null,
+    lastSettingsStatus: null,
+    lastSettingsError: null,
   });
   const [loading, setLoading] = useState(true);
 
@@ -83,18 +136,25 @@ export function useLeadsMonitor(autoRefreshInterval = 30000): UseLeadsMonitorRet
     if (!user) return;
 
     try {
-      // Count by status
+      // Contar por status - incluindo 'sent' e 'enviado' para compatibilidade
       const { count: pendingCount } = await supabase
         .from('leads')
         .select('*', { count: 'exact', head: true })
         .eq('user_id', user.id)
         .eq('status', 'pending');
 
-      const { count: sentCount } = await supabase
+      // Contar enviados (ambos status possíveis)
+      const { count: sentCount1 } = await supabase
         .from('leads')
         .select('*', { count: 'exact', head: true })
         .eq('user_id', user.id)
         .eq('status', 'enviado');
+        
+      const { count: sentCount2 } = await supabase
+        .from('leads')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .eq('status', 'sent');
 
       const { count: contactedCount } = await supabase
         .from('leads')
@@ -102,14 +162,18 @@ export function useLeadsMonitor(autoRefreshInterval = 30000): UseLeadsMonitorRet
         .eq('user_id', user.id)
         .eq('status', 'contacted');
 
-      // Count failed webhook calls (leads that were attempted but failed)
+      // Contar falhas de webhook nas últimas 24h
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      
       const { count: failedCount } = await supabase
         .from('webhook_logs')
         .select('*', { count: 'exact', head: true })
         .eq('user_id', user.id)
-        .eq('success', false);
+        .eq('success', false)
+        .gte('created_at', yesterday.toISOString());
 
-      // Today's leads
+      // Leads de hoje
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const { count: todayCount } = await supabase
@@ -120,7 +184,7 @@ export function useLeadsMonitor(autoRefreshInterval = 30000): UseLeadsMonitorRet
 
       setStats({
         pending: pendingCount || 0,
-        sent: sentCount || 0,
+        sent: (sentCount1 || 0) + (sentCount2 || 0),
         contacted: contactedCount || 0,
         failed: failedCount || 0,
         todayCount: todayCount || 0
@@ -136,7 +200,7 @@ export function useLeadsMonitor(autoRefreshInterval = 30000): UseLeadsMonitorRet
     try {
       const { data, error } = await supabase
         .from('leads')
-        .select('id, cnpj, razao_social, nome_fantasia, telefones, telefones_array, status, created_at, municipio, uf')
+        .select('id, cnpj, razao_social, nome_fantasia, telefones, telefones_array, status, created_at, municipio, uf, retry_count, last_webhook_attempt')
         .eq('user_id', user.id)
         .eq('status', 'pending')
         .order('created_at', { ascending: false })
@@ -153,14 +217,14 @@ export function useLeadsMonitor(autoRefreshInterval = 30000): UseLeadsMonitorRet
     if (!user) return;
 
     try {
-      // Get webhook URL from settings
+      // Buscar URL e campos de tracking das settings
       const { data: settings } = await supabase
         .from('settings')
-        .select('n8n_webhook_url')
+        .select('n8n_webhook_url, n8n_webhook_last_status, n8n_webhook_last_error, n8n_webhook_last_called_at')
         .eq('user_id', user.id)
         .single();
 
-      // Get last webhook log
+      // Buscar último log de webhook
       const { data: lastLog } = await supabase
         .from('webhook_logs')
         .select('created_at, success, status_code, duration_ms, error_message')
@@ -177,6 +241,10 @@ export function useLeadsMonitor(autoRefreshInterval = 30000): UseLeadsMonitorRet
         lastCallStatusCode: lastLog?.status_code || null,
         lastCallDuration: lastLog?.duration_ms || null,
         lastCallError: lastLog?.error_message || null,
+        // Campos diretos das settings
+        lastSettingsCallAt: settings?.n8n_webhook_last_called_at || null,
+        lastSettingsStatus: settings?.n8n_webhook_last_status || null,
+        lastSettingsError: settings?.n8n_webhook_last_error || null,
       });
     } catch (error) {
       console.error('[useLeadsMonitor] Error fetching webhook status:', error);
@@ -241,7 +309,7 @@ export function useLeadsMonitor(autoRefreshInterval = 30000): UseLeadsMonitorRet
       await fetchAll();
 
       return { 
-        success: data?.success_count > 0,
+        success: data?.successful > 0 || data?.success_count > 0,
         error: data?.results?.[0]?.error 
       };
     } catch (error) {
@@ -256,7 +324,16 @@ export function useLeadsMonitor(autoRefreshInterval = 30000): UseLeadsMonitorRet
     if (!user) return { success: false, sent: 0, failed: 0 };
 
     try {
-      const pendingIds = pendingLeads.map(l => l.id);
+      // Filtrar apenas leads com retry_count < 3
+      const { data: eligibleLeads } = await supabase
+        .from('leads')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('status', 'pending')
+        .or('retry_count.is.null,retry_count.lt.3')
+        .limit(50);
+      
+      const pendingIds = eligibleLeads?.map(l => l.id) || [];
       
       if (pendingIds.length === 0) {
         return { success: true, sent: 0, failed: 0 };
@@ -278,8 +355,8 @@ export function useLeadsMonitor(autoRefreshInterval = 30000): UseLeadsMonitorRet
 
       return { 
         success: true,
-        sent: data?.success_count || 0,
-        failed: data?.fail_count || 0
+        sent: data?.successful || data?.success_count || 0,
+        failed: data?.failed || data?.fail_count || 0
       };
     } catch (error) {
       return { success: false, sent: 0, failed: pendingLeads.length };
@@ -289,7 +366,15 @@ export function useLeadsMonitor(autoRefreshInterval = 30000): UseLeadsMonitorRet
   const saveWebhookUrl = useCallback(async (url: string): Promise<{ success: boolean; error?: string }> => {
     if (!user) return { success: false, error: 'Usuário não autenticado' };
 
+    // Validar URL antes de salvar
+    const validation = validateWebhookUrlClient(url);
+    if (!validation.valid) {
+      return { success: false, error: validation.error };
+    }
+
     try {
+      const normalizedUrl = url.trim() || null;
+      
       const { data: existing } = await supabase
         .from('settings')
         .select('id')
@@ -299,13 +384,20 @@ export function useLeadsMonitor(autoRefreshInterval = 30000): UseLeadsMonitorRet
       if (existing) {
         const { error } = await supabase
           .from('settings')
-          .update({ n8n_webhook_url: url || null, updated_at: new Date().toISOString() })
+          .update({ 
+            n8n_webhook_url: normalizedUrl, 
+            updated_at: new Date().toISOString(),
+            // Limpar status anterior ao mudar a URL
+            n8n_webhook_last_status: null,
+            n8n_webhook_last_error: null,
+            n8n_webhook_last_called_at: null,
+          })
           .eq('user_id', user.id);
         if (error) throw error;
       } else {
         const { error } = await supabase
           .from('settings')
-          .insert({ user_id: user.id, n8n_webhook_url: url || null });
+          .insert({ user_id: user.id, n8n_webhook_url: normalizedUrl });
         if (error) throw error;
       }
 
@@ -316,19 +408,58 @@ export function useLeadsMonitor(autoRefreshInterval = 30000): UseLeadsMonitorRet
     }
   }, [user, fetchWebhookStatus]);
 
-  const testWebhook = useCallback(async (): Promise<{ success: boolean; error?: string }> => {
+  const testWebhook = useCallback(async (): Promise<{ success: boolean; error?: string; statusCode?: number }> => {
     if (!user) return { success: false, error: 'Usuário não autenticado' };
     if (!webhookStatus.url) return { success: false, error: 'URL não configurada' };
 
     try {
+      // Criar AbortController para timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      
       const response = await fetch(webhookStatus.url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lead_id: 'test-' + Date.now(), user_id: user.id, nome: 'Teste', telefones: '5511999999999', _test: true }),
+        body: JSON.stringify({ 
+          lead_id: 'test-' + Date.now(), 
+          user_id: user.id, 
+          nome: 'Teste de Conexão', 
+          telefones: '5511999999999',
+          created_at: new Date().toISOString(),
+          _test: true,
+          lead: {
+            id: 'test-' + Date.now(),
+            nome_fantasia: 'Teste de Conexão',
+            telefones: '5511999999999',
+          }
+        }),
+        signal: controller.signal,
       });
-      return response.ok ? { success: true } : { success: false, error: `HTTP ${response.status}` };
+      
+      clearTimeout(timeoutId);
+      
+      if (response.ok) {
+        return { success: true, statusCode: response.status };
+      } else {
+        // Tentar ler o body para detectar erro específico
+        let errorMsg = `HTTP ${response.status}`;
+        try {
+          const body = await response.text();
+          if (body.includes('workflow must be active') || body.includes('not registered')) {
+            errorMsg = 'O workflow do n8n não está ativo. Ative-o no editor do n8n.';
+          }
+        } catch { /* ignore */ }
+        
+        return { success: false, error: errorMsg, statusCode: response.status };
+      }
     } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Erro de rede' };
+      if (error instanceof Error) {
+        if (error.name === 'AbortError') {
+          return { success: false, error: 'Timeout: o webhook não respondeu em 10 segundos.' };
+        }
+        return { success: false, error: `Erro de conexão: ${error.message}` };
+      }
+      return { success: false, error: 'Erro de rede desconhecido' };
     }
   }, [user, webhookStatus.url]);
 

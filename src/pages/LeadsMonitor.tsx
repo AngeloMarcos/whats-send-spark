@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { useLeadsMonitor } from '@/hooks/useLeadsMonitor';
+import { useState, useEffect, useMemo } from 'react';
+import { useLeadsMonitor, isWorkflowInactiveError } from '@/hooks/useLeadsMonitor';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { AppHeader } from '@/components/layout/AppHeader';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useToast } from '@/hooks/use-toast';
 import { 
   RefreshCw, 
@@ -16,12 +17,14 @@ import {
   CheckCircle, 
   XCircle, 
   AlertCircle,
+  AlertTriangle,
   Loader2,
   Webhook,
   Activity,
   Calendar,
   Save,
-  Zap
+  Zap,
+  RotateCcw
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -46,6 +49,7 @@ export default function LeadsMonitor() {
   const [webhookUrlInput, setWebhookUrlInput] = useState('');
   const [savingUrl, setSavingUrl] = useState(false);
   const [testingWebhook, setTestingWebhook] = useState(false);
+  const [urlError, setUrlError] = useState<string | null>(null);
 
   // Sync input with webhook status when it loads
   useEffect(() => {
@@ -54,8 +58,47 @@ export default function LeadsMonitor() {
     }
   }, [webhookStatus.url, webhookUrlInput]);
 
+  // Validação visual da URL
+  const urlValidation = useMemo(() => {
+    if (!webhookUrlInput || webhookUrlInput.trim() === '') {
+      return { valid: true, message: null };
+    }
+    if (!webhookUrlInput.startsWith('https://')) {
+      return { valid: false, message: 'A URL deve começar com https://' };
+    }
+    try {
+      const url = new URL(webhookUrlInput);
+      const hostname = url.hostname.toLowerCase();
+      if (hostname === 'localhost' || hostname === '127.0.0.1') {
+        return { valid: false, message: 'URLs locais não são permitidas' };
+      }
+      if (hostname.startsWith('192.168.') || hostname.startsWith('10.')) {
+        return { valid: false, message: 'URLs de redes privadas não são permitidas' };
+      }
+      return { valid: true, message: null };
+    } catch {
+      return { valid: false, message: 'URL inválida' };
+    }
+  }, [webhookUrlInput]);
+
+  // Detectar se o último erro indica workflow inativo
+  const showWorkflowInactiveAlert = useMemo(() => {
+    return isWorkflowInactiveError(webhookStatus.lastCallError) || 
+           isWorkflowInactiveError(webhookStatus.lastSettingsError);
+  }, [webhookStatus.lastCallError, webhookStatus.lastSettingsError]);
+
   const handleSaveUrl = async () => {
+    if (!urlValidation.valid) {
+      toast({
+        title: 'URL inválida',
+        description: urlValidation.message || 'Verifique o formato da URL.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setSavingUrl(true);
+    setUrlError(null);
     const result = await saveWebhookUrl(webhookUrlInput);
     setSavingUrl(false);
 
@@ -65,6 +108,7 @@ export default function LeadsMonitor() {
         description: 'A URL do webhook n8n foi atualizada com sucesso.',
       });
     } else {
+      setUrlError(result.error || 'Erro desconhecido');
       toast({
         title: 'Erro ao salvar',
         description: result.error || 'Não foi possível salvar a URL.',
@@ -86,6 +130,9 @@ export default function LeadsMonitor() {
     setTestingWebhook(true);
     const result = await testWebhook();
     setTestingWebhook(false);
+    
+    // Recarregar status após teste
+    await refetch();
 
     if (result.success) {
       toast({
@@ -147,6 +194,24 @@ export default function LeadsMonitor() {
     return phones.length > 0 ? `${phones.length} tel.` : '-';
   };
 
+  // Formatar erro para exibição resumida
+  const formatErrorMessage = (error: string | null) => {
+    if (!error) return '-';
+    if (error.includes('workflow') && (error.includes('ativo') || error.includes('active'))) {
+      return 'Workflow não ativo';
+    }
+    if (error.includes('not registered') || error.includes('not found')) {
+      return 'Webhook não encontrado';
+    }
+    if (error.includes('timeout') || error.includes('Timeout')) {
+      return 'Timeout';
+    }
+    if (error.includes('conexão') || error.includes('network')) {
+      return 'Erro de rede';
+    }
+    return error.length > 40 ? error.substring(0, 40) + '...' : error;
+  };
+
   return (
     <AppLayout>
       <AppHeader 
@@ -189,6 +254,25 @@ export default function LeadsMonitor() {
             </Button>
           </div>
         </div>
+
+        {/* Alerta de Workflow Inativo */}
+        {showWorkflowInactiveAlert && (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>Workflow do n8n não está ativo</AlertTitle>
+            <AlertDescription className="mt-2">
+              O webhook retornou erro 404, indicando que o workflow não está ativo no n8n. 
+              Para resolver:
+              <ol className="list-decimal list-inside mt-2 space-y-1">
+                <li>Abra o editor do n8n</li>
+                <li>Localize o workflow que contém o webhook</li>
+                <li>Clique no botão <strong>"Active"</strong> no canto superior direito para ativá-lo</li>
+                <li>Copie a <strong>Production URL</strong> (não a Test URL)</li>
+                <li>Cole a URL aqui e teste novamente</li>
+              </ol>
+            </AlertDescription>
+          </Alert>
+        )}
 
         {/* Stats Cards */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
@@ -279,13 +363,33 @@ export default function LeadsMonitor() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex gap-2">
-              <Input
-                value={webhookUrlInput}
-                onChange={(e) => setWebhookUrlInput(e.target.value)}
-                placeholder="https://seu-n8n.com/webhook/disparo-massa"
-                className="flex-1"
-              />
-              <Button onClick={handleSaveUrl} disabled={savingUrl}>
+              <div className="flex-1 space-y-1">
+                <Input
+                  value={webhookUrlInput}
+                  onChange={(e) => {
+                    setWebhookUrlInput(e.target.value);
+                    setUrlError(null);
+                  }}
+                  placeholder="https://seu-n8n.com/webhook/disparo-massa"
+                  className={`${
+                    webhookUrlInput && !urlValidation.valid 
+                      ? 'border-red-500 focus-visible:ring-red-500' 
+                      : webhookUrlInput && urlValidation.valid
+                        ? 'border-green-500 focus-visible:ring-green-500'
+                        : ''
+                  }`}
+                />
+                {webhookUrlInput && !urlValidation.valid && (
+                  <p className="text-xs text-red-500">{urlValidation.message}</p>
+                )}
+                {urlError && (
+                  <p className="text-xs text-red-500">{urlError}</p>
+                )}
+              </div>
+              <Button 
+                onClick={handleSaveUrl} 
+                disabled={savingUrl || (webhookUrlInput && !urlValidation.valid)}
+              >
                 {savingUrl ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
@@ -307,14 +411,15 @@ export default function LeadsMonitor() {
               </Button>
             </div>
 
-            {webhookStatus.lastCallAt && (
+            {/* Status da última chamada */}
+            {(webhookStatus.lastCallAt || webhookStatus.lastSettingsCallAt) && (
               <div className="flex flex-wrap items-center gap-2 text-sm">
                 <span className="text-muted-foreground">Última chamada:</span>
                 <span>
-                  {formatDistanceToNow(new Date(webhookStatus.lastCallAt), { 
-                    addSuffix: true, 
-                    locale: ptBR 
-                  })}
+                  {formatDistanceToNow(
+                    new Date(webhookStatus.lastSettingsCallAt || webhookStatus.lastCallAt || ''), 
+                    { addSuffix: true, locale: ptBR }
+                  )}
                 </span>
                 {webhookStatus.lastCallSuccess !== null && (
                   <Badge variant={webhookStatus.lastCallSuccess ? 'default' : 'destructive'}>
@@ -326,9 +431,13 @@ export default function LeadsMonitor() {
               </div>
             )}
 
-            {webhookStatus.lastCallError && !webhookStatus.lastCallSuccess && (
+            {/* Exibir último erro (se houver) */}
+            {(webhookStatus.lastCallError || webhookStatus.lastSettingsError) && 
+             webhookStatus.lastCallSuccess === false && (
               <div className="p-3 bg-destructive/10 rounded-md text-sm text-destructive">
-                <strong>Último erro:</strong> {webhookStatus.lastCallError.substring(0, 200)}
+                <strong>Último erro:</strong> {
+                  (webhookStatus.lastSettingsError || webhookStatus.lastCallError || '').substring(0, 300)
+                }
               </div>
             )}
           </CardContent>
@@ -350,7 +459,7 @@ export default function LeadsMonitor() {
               <CardHeader>
                 <CardTitle className="text-base">Leads Aguardando Envio</CardTitle>
                 <CardDescription>
-                  Leads com status "pending" que serão notificados ao n8n
+                  Leads com status "pending" que serão notificados ao n8n (máx. 3 tentativas)
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -369,6 +478,7 @@ export default function LeadsMonitor() {
                           <TableHead>Empresa</TableHead>
                           <TableHead>Cidade/UF</TableHead>
                           <TableHead>Telefones</TableHead>
+                          <TableHead>Tentativas</TableHead>
                           <TableHead>Criado</TableHead>
                           <TableHead className="text-right">Ação</TableHead>
                         </TableRow>
@@ -392,6 +502,20 @@ export default function LeadsMonitor() {
                                 {formatPhone(lead.telefones)}
                               </Badge>
                             </TableCell>
+                            <TableCell>
+                              <Badge 
+                                variant={
+                                  (lead.retry_count || 0) >= 3 
+                                    ? 'destructive' 
+                                    : (lead.retry_count || 0) > 0 
+                                      ? 'secondary' 
+                                      : 'outline'
+                                }
+                              >
+                                <RotateCcw className="h-3 w-3 mr-1" />
+                                {lead.retry_count || 0}/3
+                              </Badge>
+                            </TableCell>
                             <TableCell className="text-xs text-muted-foreground">
                               {formatDistanceToNow(new Date(lead.created_at), { 
                                 addSuffix: true, 
@@ -403,7 +527,12 @@ export default function LeadsMonitor() {
                                 size="sm"
                                 variant="ghost"
                                 onClick={() => handleResendLead(lead.id)}
-                                disabled={resending === lead.id || !webhookStatus.isConfigured}
+                                disabled={
+                                  resending === lead.id || 
+                                  !webhookStatus.isConfigured ||
+                                  (lead.retry_count || 0) >= 3
+                                }
+                                title={(lead.retry_count || 0) >= 3 ? 'Máximo de tentativas atingido' : 'Reenviar'}
                               >
                                 {resending === lead.id ? (
                                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -470,16 +599,26 @@ export default function LeadsMonitor() {
                               {log.lead_id?.substring(0, 8) || '-'}...
                             </TableCell>
                             <TableCell>
-                              {log.status_code || '-'}
+                              {log.status_code ? (
+                                <Badge 
+                                  variant={
+                                    log.status_code >= 200 && log.status_code < 300 
+                                      ? 'default' 
+                                      : 'destructive'
+                                  }
+                                >
+                                  {log.status_code}
+                                </Badge>
+                              ) : '-'}
                             </TableCell>
                             <TableCell>
                               {log.duration_ms ? `${log.duration_ms}ms` : '-'}
                             </TableCell>
-                            <TableCell className="max-w-[200px] truncate text-xs text-destructive">
-                              {log.error_message || '-'}
+                            <TableCell className="max-w-[200px] text-xs text-muted-foreground">
+                              {formatErrorMessage(log.error_message)}
                             </TableCell>
                             <TableCell className="text-xs text-muted-foreground">
-                              {log.created_at && formatDistanceToNow(new Date(log.created_at), { 
+                              {formatDistanceToNow(new Date(log.created_at), { 
                                 addSuffix: true, 
                                 locale: ptBR 
                               })}
