@@ -14,6 +14,7 @@ import NotFound from "./pages/NotFound";
 import LeadCapture from "./pages/LeadCapture";
 import AdvancedSearch from "./pages/AdvancedSearch";
 import LeadsAdmin from "./pages/LeadsAdmin";
+import LeadsMonitor from "./pages/LeadsMonitor";
 import Errors from "./pages/Errors";
 import StellaOnboarding from "./pages/StellaOnboarding";
 
@@ -35,6 +36,7 @@ const App = () => (
             <Route path="/templates" element={<Templates />} />
             <Route path="/capturar-leads" element={<LeadCapture />} />
             <Route path="/leads" element={<LeadsAdmin />} />
+            <Route path="/leads-monitor" element={<LeadsMonitor />} />
             <Route path="/pesquisa-avancada" element={<AdvancedSearch />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/erros" element={<Errors />} />

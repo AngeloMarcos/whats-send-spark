@@ -1029,6 +1029,56 @@ export type Database = {
         }
         Relationships: []
       }
+      webhook_logs: {
+        Row: {
+          created_at: string | null
+          duration_ms: number | null
+          error_message: string | null
+          id: string
+          lead_id: string | null
+          request_payload: Json | null
+          response_body: string | null
+          status_code: number | null
+          success: boolean | null
+          user_id: string
+          webhook_url: string
+        }
+        Insert: {
+          created_at?: string | null
+          duration_ms?: number | null
+          error_message?: string | null
+          id?: string
+          lead_id?: string | null
+          request_payload?: Json | null
+          response_body?: string | null
+          status_code?: number | null
+          success?: boolean | null
+          user_id: string
+          webhook_url: string
+        }
+        Update: {
+          created_at?: string | null
+          duration_ms?: number | null
+          error_message?: string | null
+          id?: string
+          lead_id?: string | null
+          request_payload?: Json | null
+          response_body?: string | null
+          status_code?: number | null
+          success?: boolean | null
+          user_id?: string
+          webhook_url?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "webhook_logs_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       contact_send_history: {
