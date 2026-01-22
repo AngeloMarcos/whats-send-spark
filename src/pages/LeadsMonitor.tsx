@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useLeadsMonitor } from '@/hooks/useLeadsMonitor';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { AppHeader } from '@/components/layout/AppHeader';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -19,7 +20,8 @@ import {
   Webhook,
   Activity,
   Calendar,
-  ExternalLink
+  Save,
+  Zap
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -33,12 +35,71 @@ export default function LeadsMonitor() {
     webhookStatus, 
     loading, 
     resendLead, 
-    resendAllPending, 
+    resendAllPending,
+    saveWebhookUrl,
+    testWebhook,
     refetch 
   } = useLeadsMonitor(30000); // 30 segundos auto-refresh
 
   const [resending, setResending] = useState<string | null>(null);
   const [resendingAll, setResendingAll] = useState(false);
+  const [webhookUrlInput, setWebhookUrlInput] = useState('');
+  const [savingUrl, setSavingUrl] = useState(false);
+  const [testingWebhook, setTestingWebhook] = useState(false);
+
+  // Sync input with webhook status when it loads
+  useEffect(() => {
+    if (webhookStatus.url && webhookUrlInput === '') {
+      setWebhookUrlInput(webhookStatus.url);
+    }
+  }, [webhookStatus.url, webhookUrlInput]);
+
+  const handleSaveUrl = async () => {
+    setSavingUrl(true);
+    const result = await saveWebhookUrl(webhookUrlInput);
+    setSavingUrl(false);
+
+    if (result.success) {
+      toast({
+        title: 'URL salva!',
+        description: 'A URL do webhook n8n foi atualizada com sucesso.',
+      });
+    } else {
+      toast({
+        title: 'Erro ao salvar',
+        description: result.error || 'Não foi possível salvar a URL.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleTestWebhook = async () => {
+    if (!webhookStatus.isConfigured) {
+      toast({
+        title: 'URL não configurada',
+        description: 'Configure e salve a URL do webhook primeiro.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setTestingWebhook(true);
+    const result = await testWebhook();
+    setTestingWebhook(false);
+
+    if (result.success) {
+      toast({
+        title: 'Teste enviado!',
+        description: 'O webhook recebeu o payload de teste. Verifique o n8n.',
+      });
+    } else {
+      toast({
+        title: 'Falha no teste',
+        description: result.error || 'O webhook não respondeu corretamente.',
+        variant: 'destructive',
+      });
+    }
+  };
 
   const handleResendLead = async (leadId: string) => {
     setResending(leadId);
@@ -173,7 +234,7 @@ export default function LeadsMonitor() {
                 <XCircle className="h-5 w-5 text-red-500" />
                 <div>
                   <p className="text-2xl font-bold">{stats.failed}</p>
-                  <p className="text-xs text-muted-foreground">Falhas</p>
+                  <p className="text-xs text-muted-foreground">Falhas (24h)</p>
                 </div>
               </div>
             </CardContent>
@@ -192,13 +253,13 @@ export default function LeadsMonitor() {
           </Card>
         </div>
 
-        {/* Webhook Status Card */}
+        {/* Webhook Configuration Card */}
         <Card>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Webhook className="h-5 w-5 text-primary" />
-                <CardTitle className="text-base">Status do Webhook n8n</CardTitle>
+                <Zap className="h-5 w-5 text-primary" />
+                <CardTitle className="text-base">Configuração do Webhook n8n</CardTitle>
               </div>
               {webhookStatus.isConfigured ? (
                 <Badge variant="default" className="bg-green-500">
@@ -212,36 +273,62 @@ export default function LeadsMonitor() {
                 </Badge>
               )}
             </div>
+            <CardDescription>
+              Configure a URL do webhook do n8n para receber os leads automaticamente
+            </CardDescription>
           </CardHeader>
-          <CardContent>
-            {webhookStatus.isConfigured ? (
-              <div className="space-y-2 text-sm">
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <span className="font-medium">URL:</span>
-                  <code className="bg-muted px-2 py-1 rounded text-xs truncate max-w-md">
-                    {webhookStatus.url?.substring(0, 60)}...
-                  </code>
-                </div>
-                {webhookStatus.lastCallAt && (
-                  <div className="flex items-center gap-4">
-                    <span>
-                      Última chamada: {formatDistanceToNow(new Date(webhookStatus.lastCallAt), { 
-                        addSuffix: true, 
-                        locale: ptBR 
-                      })}
-                    </span>
-                    {webhookStatus.lastCallSuccess !== null && (
-                      <Badge variant={webhookStatus.lastCallSuccess ? 'default' : 'destructive'}>
-                        {webhookStatus.lastCallSuccess ? 'Sucesso' : 'Falhou'}
-                        {webhookStatus.lastCallDuration && ` (${webhookStatus.lastCallDuration}ms)`}
-                      </Badge>
-                    )}
-                  </div>
+          <CardContent className="space-y-4">
+            <div className="flex gap-2">
+              <Input
+                value={webhookUrlInput}
+                onChange={(e) => setWebhookUrlInput(e.target.value)}
+                placeholder="https://seu-n8n.com/webhook/disparo-massa"
+                className="flex-1"
+              />
+              <Button onClick={handleSaveUrl} disabled={savingUrl}>
+                {savingUrl ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4" />
+                )}
+                <span className="ml-2 hidden sm:inline">Salvar</span>
+              </Button>
+              <Button 
+                variant="outline" 
+                onClick={handleTestWebhook} 
+                disabled={testingWebhook || !webhookStatus.isConfigured}
+              >
+                {testingWebhook ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
+                <span className="ml-2 hidden sm:inline">Testar</span>
+              </Button>
+            </div>
+
+            {webhookStatus.lastCallAt && (
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="text-muted-foreground">Última chamada:</span>
+                <span>
+                  {formatDistanceToNow(new Date(webhookStatus.lastCallAt), { 
+                    addSuffix: true, 
+                    locale: ptBR 
+                  })}
+                </span>
+                {webhookStatus.lastCallSuccess !== null && (
+                  <Badge variant={webhookStatus.lastCallSuccess ? 'default' : 'destructive'}>
+                    {webhookStatus.lastCallSuccess ? 'Sucesso' : 'Falhou'}
+                    {webhookStatus.lastCallStatusCode && ` (${webhookStatus.lastCallStatusCode})`}
+                    {webhookStatus.lastCallDuration && ` - ${webhookStatus.lastCallDuration}ms`}
+                  </Badge>
                 )}
               </div>
-            ) : (
-              <div className="text-sm text-muted-foreground">
-                <p>Configure a URL do webhook n8n em <a href="/settings" className="text-primary underline">Configurações</a> para receber notificações automáticas de novos leads.</p>
+            )}
+
+            {webhookStatus.lastCallError && !webhookStatus.lastCallSuccess && (
+              <div className="p-3 bg-destructive/10 rounded-md text-sm text-destructive">
+                <strong>Último erro:</strong> {webhookStatus.lastCallError.substring(0, 200)}
               </div>
             )}
           </CardContent>
@@ -392,7 +479,7 @@ export default function LeadsMonitor() {
                               {log.error_message || '-'}
                             </TableCell>
                             <TableCell className="text-xs text-muted-foreground">
-                              {formatDistanceToNow(new Date(log.created_at), { 
+                              {log.created_at && formatDistanceToNow(new Date(log.created_at), { 
                                 addSuffix: true, 
                                 locale: ptBR 
                               })}
