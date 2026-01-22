@@ -15,15 +15,27 @@ interface Lead {
   cnpj: string | null;
   razao_social: string | null;
   nome_fantasia: string | null;
+  nome: string | null;
   email: string | null;
   telefones: string;
   telefones_array: string[] | null;
   endereco: string | null;
+  logradouro: string | null;
+  numero: string | null;
+  complemento: string | null;
+  bairro: string | null;
   municipio: string | null;
   uf: string | null;
-  socios: any[] | null;
+  cep: string | null;
+  atividade: string | null;
+  situacao: string | null;
+  capital_social: string | null;
+  porte_empresa: string | null;
+  data_abertura: string | null;
+  socios: unknown[] | null;
   created_at: string;
   status: string;
+  source: string | null;
 }
 
 Deno.serve(async (req) => {
@@ -68,6 +80,20 @@ Deno.serve(async (req) => {
 
     if (settingsError || !settings?.n8n_webhook_url) {
       console.log('[notify-n8n] No webhook URL configured for user');
+      
+      // Log failure for each lead
+      for (const lead_id of lead_ids) {
+        await supabase.from('webhook_logs').insert({
+          user_id,
+          lead_id,
+          webhook_url: 'NOT_CONFIGURED',
+          status_code: null,
+          success: false,
+          error_message: 'Webhook URL not configured in user settings',
+          duration_ms: Date.now() - startTime,
+        });
+      }
+      
       return new Response(
         JSON.stringify({ 
           success: false, 
@@ -81,10 +107,32 @@ Deno.serve(async (req) => {
     const webhookUrl = settings.n8n_webhook_url;
     console.log(`[notify-n8n] Webhook URL found: ${webhookUrl.substring(0, 50)}...`);
 
+    // Validate webhook URL (basic SSRF protection)
+    try {
+      const url = new URL(webhookUrl);
+      const hostname = url.hostname.toLowerCase();
+      
+      if (
+        hostname === 'localhost' ||
+        hostname === '127.0.0.1' ||
+        hostname.startsWith('192.168.') ||
+        hostname.startsWith('10.') ||
+        hostname.match(/^172\.(1[6-9]|2[0-9]|3[0-1])\./)
+      ) {
+        throw new Error('Private/localhost URLs not allowed');
+      }
+    } catch (urlError) {
+      console.error('[notify-n8n] Invalid webhook URL:', urlError);
+      return new Response(
+        JSON.stringify({ success: false, error: 'Invalid webhook URL' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     // 2. Fetch full lead data
     const { data: leads, error: leadsError } = await supabase
       .from('leads')
-      .select('id, cnpj, razao_social, nome_fantasia, email, telefones, telefones_array, endereco, municipio, uf, socios, created_at, status')
+      .select('*')
       .in('id', lead_ids);
 
     if (leadsError || !leads || leads.length === 0) {
@@ -100,28 +148,51 @@ Deno.serve(async (req) => {
     // 3. Send each lead to n8n and log results
     const results = [];
     
-    for (const lead of leads) {
+    for (const lead of leads as Lead[]) {
+      const leadStartTime = Date.now();
+      
+      // Build payload in the exact format expected by n8n Code node "Tratar Dados"
+      // Primary fields at root level for easy access
       const payload = {
-        event: 'new_lead',
+        // === Primary fields for n8n Code node ===
         lead_id: lead.id,
-        cnpj: lead.cnpj,
-        razao_social: lead.razao_social,
-        nome_fantasia: lead.nome_fantasia,
-        email: lead.email,
-        telefones: lead.telefones_array || (lead.telefones ? lead.telefones.split(',').map((t: string) => t.trim()) : []),
-        telefones_string: lead.telefones,
-        endereco: lead.endereco,
-        municipio: lead.municipio,
-        uf: lead.uf,
-        socios: lead.socios || [],
-        created_at: lead.created_at,
         user_id: user_id,
-        timestamp: new Date().toISOString()
+        nome: lead.nome_fantasia || lead.razao_social || lead.nome || 'Sem nome',
+        telefones: lead.telefones, // Original string format
+        created_at: lead.created_at,
+        
+        // === Complete lead object for reference ===
+        lead: {
+          id: lead.id,
+          cnpj: lead.cnpj,
+          razao_social: lead.razao_social,
+          nome_fantasia: lead.nome_fantasia,
+          nome: lead.nome,
+          email: lead.email,
+          telefones: lead.telefones,
+          telefones_array: lead.telefones_array || [],
+          endereco: lead.endereco,
+          logradouro: lead.logradouro,
+          numero: lead.numero,
+          complemento: lead.complemento,
+          bairro: lead.bairro,
+          municipio: lead.municipio,
+          uf: lead.uf,
+          cep: lead.cep,
+          atividade: lead.atividade,
+          situacao: lead.situacao,
+          capital_social: lead.capital_social,
+          porte_empresa: lead.porte_empresa,
+          data_abertura: lead.data_abertura,
+          socios: lead.socios || [],
+          status: lead.status,
+          source: lead.source,
+        }
       };
 
       let statusCode = 0;
       let responseBody = '';
-      let errorMessage = null;
+      let errorMessage: string | null = null;
       let success = false;
 
       try {
@@ -149,7 +220,7 @@ Deno.serve(async (req) => {
         console.error(`[notify-n8n] Lead ${lead.id} - Fetch error:`, errorMessage);
       }
 
-      const duration = Date.now() - startTime;
+      const duration = Date.now() - leadStartTime;
 
       // 4. Log the webhook call
       const { error: logError } = await supabase
@@ -187,8 +258,8 @@ Deno.serve(async (req) => {
       JSON.stringify({
         success: true,
         total: results.length,
-        success_count: successCount,
-        fail_count: failCount,
+        successful: successCount,
+        failed: failCount,
         results
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

@@ -39,7 +39,9 @@ interface WebhookStatus {
   isConfigured: boolean;
   lastCallAt: string | null;
   lastCallSuccess: boolean | null;
+  lastCallStatusCode: number | null;
   lastCallDuration: number | null;
+  lastCallError: string | null;
 }
 
 interface UseLeadsMonitorReturn {
@@ -50,6 +52,8 @@ interface UseLeadsMonitorReturn {
   loading: boolean;
   resendLead: (leadId: string) => Promise<{ success: boolean; error?: string }>;
   resendAllPending: () => Promise<{ success: boolean; sent: number; failed: number }>;
+  saveWebhookUrl: (url: string) => Promise<{ success: boolean; error?: string }>;
+  testWebhook: () => Promise<{ success: boolean; error?: string }>;
   refetch: () => void;
 }
 
@@ -69,7 +73,9 @@ export function useLeadsMonitor(autoRefreshInterval = 30000): UseLeadsMonitorRet
     isConfigured: false,
     lastCallAt: null,
     lastCallSuccess: null,
-    lastCallDuration: null
+    lastCallStatusCode: null,
+    lastCallDuration: null,
+    lastCallError: null,
   });
   const [loading, setLoading] = useState(true);
 
@@ -157,7 +163,7 @@ export function useLeadsMonitor(autoRefreshInterval = 30000): UseLeadsMonitorRet
       // Get last webhook log
       const { data: lastLog } = await supabase
         .from('webhook_logs')
-        .select('created_at, success, duration_ms')
+        .select('created_at, success, status_code, duration_ms, error_message')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
         .limit(1)
@@ -168,7 +174,9 @@ export function useLeadsMonitor(autoRefreshInterval = 30000): UseLeadsMonitorRet
         isConfigured: !!settings?.n8n_webhook_url,
         lastCallAt: lastLog?.created_at || null,
         lastCallSuccess: lastLog?.success ?? null,
-        lastCallDuration: lastLog?.duration_ms || null
+        lastCallStatusCode: lastLog?.status_code || null,
+        lastCallDuration: lastLog?.duration_ms || null,
+        lastCallError: lastLog?.error_message || null,
       });
     } catch (error) {
       console.error('[useLeadsMonitor] Error fetching webhook status:', error);
@@ -278,6 +286,52 @@ export function useLeadsMonitor(autoRefreshInterval = 30000): UseLeadsMonitorRet
     }
   }, [user, pendingLeads, fetchAll]);
 
+  const saveWebhookUrl = useCallback(async (url: string): Promise<{ success: boolean; error?: string }> => {
+    if (!user) return { success: false, error: 'Usuário não autenticado' };
+
+    try {
+      const { data: existing } = await supabase
+        .from('settings')
+        .select('id')
+        .eq('user_id', user.id)
+        .single();
+
+      if (existing) {
+        const { error } = await supabase
+          .from('settings')
+          .update({ n8n_webhook_url: url || null, updated_at: new Date().toISOString() })
+          .eq('user_id', user.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from('settings')
+          .insert({ user_id: user.id, n8n_webhook_url: url || null });
+        if (error) throw error;
+      }
+
+      await fetchWebhookStatus();
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Erro ao salvar' };
+    }
+  }, [user, fetchWebhookStatus]);
+
+  const testWebhook = useCallback(async (): Promise<{ success: boolean; error?: string }> => {
+    if (!user) return { success: false, error: 'Usuário não autenticado' };
+    if (!webhookStatus.url) return { success: false, error: 'URL não configurada' };
+
+    try {
+      const response = await fetch(webhookStatus.url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lead_id: 'test-' + Date.now(), user_id: user.id, nome: 'Teste', telefones: '5511999999999', _test: true }),
+      });
+      return response.ok ? { success: true } : { success: false, error: `HTTP ${response.status}` };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Erro de rede' };
+    }
+  }, [user, webhookStatus.url]);
+
   return {
     stats,
     pendingLeads,
@@ -286,6 +340,8 @@ export function useLeadsMonitor(autoRefreshInterval = 30000): UseLeadsMonitorRet
     loading,
     resendLead,
     resendAllPending,
+    saveWebhookUrl,
+    testWebhook,
     refetch: fetchAll
   };
 }
