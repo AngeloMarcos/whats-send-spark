@@ -110,7 +110,30 @@ Deno.serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+
+    // ============================================================
+    // 0. Verificar autenticação do usuário via JWT
+    // ============================================================
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Missing authorization' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const authClient = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: authHeader } }
+    });
+    const { data: { user: authUser }, error: authError } = await authClient.auth.getUser();
+    if (authError || !authUser) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Unauthorized' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     // Get request body
@@ -123,14 +146,16 @@ Deno.serve(async (req) => {
       );
     }
 
-    if (!user_id) {
+    // Usar o user_id autenticado, ignorando o do body para segurança
+    const verifiedUserId = authUser.id;
+    if (user_id && user_id !== verifiedUserId) {
       return new Response(
-        JSON.stringify({ success: false, error: 'user_id required' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ success: false, error: 'Forbidden: user_id mismatch' }),
+        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    console.log(`[notify-n8n] Processing ${lead_ids.length} leads for user ${user_id}`);
+    console.log(`[notify-n8n] Processing ${lead_ids.length} leads for user ${verifiedUserId}`);
 
     // ============================================================
     // 1. Buscar URL do webhook nas configurações do usuário
@@ -138,7 +163,7 @@ Deno.serve(async (req) => {
     const { data: settings, error: settingsError } = await supabase
       .from('settings')
       .select('n8n_webhook_url')
-      .eq('user_id', user_id)
+      .eq('user_id', verifiedUserId)
       .single();
 
     if (settingsError || !settings?.n8n_webhook_url) {
@@ -149,7 +174,7 @@ Deno.serve(async (req) => {
       // Log failure for each lead
       for (const lead_id of lead_ids) {
         await supabase.from('webhook_logs').insert({
-          user_id,
+          user_id: verifiedUserId,
           lead_id,
           webhook_url: 'NOT_CONFIGURED',
           status_code: null,
@@ -164,7 +189,7 @@ Deno.serve(async (req) => {
         n8n_webhook_last_status: null,
         n8n_webhook_last_error: errorMsg,
         n8n_webhook_last_called_at: new Date().toISOString(),
-      }).eq('user_id', user_id);
+      }).eq('user_id', verifiedUserId);
       
       return new Response(
         JSON.stringify({ 
@@ -190,7 +215,7 @@ Deno.serve(async (req) => {
         n8n_webhook_last_status: null,
         n8n_webhook_last_error: urlValidation.error,
         n8n_webhook_last_called_at: new Date().toISOString(),
-      }).eq('user_id', user_id);
+      }).eq('user_id', verifiedUserId);
       
       return new Response(
         JSON.stringify({ success: false, error: urlValidation.error }),
@@ -230,7 +255,7 @@ Deno.serve(async (req) => {
       const payload = {
         // === Campos principais para acesso direto no n8n ===
         lead_id: lead.id,
-        user_id: user_id,
+        user_id: verifiedUserId,
         nome: lead.nome_fantasia || lead.razao_social || lead.nome || 'Sem nome',
         telefones: lead.telefones, // String original
         created_at: lead.created_at,
@@ -331,7 +356,7 @@ Deno.serve(async (req) => {
       const { error: logError } = await supabase
         .from('webhook_logs')
         .insert({
-          user_id: user_id,
+          user_id: verifiedUserId,
           lead_id: lead.id,
           webhook_url: webhookUrl,
           request_payload: payload,
@@ -373,7 +398,7 @@ Deno.serve(async (req) => {
       n8n_webhook_last_status: lastStatusCode,
       n8n_webhook_last_error: lastErrorMessage,
       n8n_webhook_last_called_at: new Date().toISOString(),
-    }).eq('user_id', user_id);
+    }).eq('user_id', verifiedUserId);
 
     const successCount = results.filter(r => r.success).length;
     const failCount = results.filter(r => !r.success).length;

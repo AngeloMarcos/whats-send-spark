@@ -920,6 +920,7 @@ export type Database = {
       }
       stella_onboarding: {
         Row: {
+          access_token: string | null
           business_name: string
           business_segment: string
           client_email: string
@@ -932,6 +933,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          access_token?: string | null
           business_name: string
           business_segment: string
           client_email: string
@@ -944,6 +946,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          access_token?: string | null
           business_name?: string
           business_segment?: string
           client_email?: string

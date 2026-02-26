@@ -127,21 +127,26 @@ export default function StellaOnboarding() {
         status: 'in_progress',
       };
 
-      if (recordId) {
+      const savedToken = localStorage.getItem('stella_onboarding_token');
+      if (recordId && savedToken) {
         await supabase
           .from('stella_onboarding')
           .update({ ...formData, updated_at: new Date().toISOString() })
-          .eq('id', recordId);
+          .eq('id', recordId)
+          .eq('access_token', savedToken);
       } else {
         const { data: inserted } = await supabase
           .from('stella_onboarding')
           .insert(formData)
-          .select('id')
+          .select('id, access_token')
           .single();
         
         if (inserted?.id) {
           setRecordId(inserted.id);
           localStorage.setItem('stella_onboarding_id', inserted.id);
+          if ((inserted as Record<string, unknown>).access_token) {
+            localStorage.setItem('stella_onboarding_token', String((inserted as Record<string, unknown>).access_token));
+          }
         }
       }
       
@@ -170,14 +175,16 @@ export default function StellaOnboarding() {
     };
   }, [watchedValues, autoSave]);
 
-  // Recover saved data on mount
+  // Recover saved data on mount using access_token for RLS
   useEffect(() => {
     const savedId = localStorage.getItem('stella_onboarding_id');
-    if (savedId) {
+    const savedToken = localStorage.getItem('stella_onboarding_token');
+    if (savedId && savedToken) {
       supabase
         .from('stella_onboarding')
         .select('*')
         .eq('id', savedId)
+        .eq('access_token', savedToken)
         .eq('status', 'in_progress')
         .single()
         .then(({ data }) => {
@@ -209,11 +216,13 @@ export default function StellaOnboarding() {
         status: 'completed',
       };
 
-      if (recordId) {
+      const savedToken = localStorage.getItem('stella_onboarding_token');
+      if (recordId && savedToken) {
         await supabase
           .from('stella_onboarding')
           .update(formData)
-          .eq('id', recordId);
+          .eq('id', recordId)
+          .eq('access_token', savedToken);
       } else {
         await supabase
           .from('stella_onboarding')
