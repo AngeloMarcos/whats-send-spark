@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
-import { Star, Globe, Phone, MapPin, ChevronLeft, ChevronRight, ExternalLink, Search, ArrowUpDown, X } from 'lucide-react';
+import { Star, Globe, Phone, MapPin, ChevronLeft, ChevronRight, ExternalLink, Search, ArrowUpDown, X, MessageCircle } from 'lucide-react';
+import { buildWhatsAppUrl } from '@/lib/phoneUtils';
 import { Lead } from '@/hooks/useGooglePlaces';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
@@ -257,6 +258,7 @@ export function ResultsTable({ leads, selectedLeads, onSelectionChange }: Result
                   )}
                 </TableHead>
                 <TableHead>Telefone</TableHead>
+                <TableHead>WhatsApp</TableHead>
                 <TableHead>Categoria</TableHead>
                 <TableHead 
                   className="cursor-pointer hover:text-foreground"
@@ -302,6 +304,29 @@ export function ResultsTable({ leads, selectedLeads, onSelectionChange }: Result
                       <Phone className="h-3 w-3 text-muted-foreground" />
                       <span className="text-sm font-mono">{formatPhone(lead.phone)}</span>
                     </div>
+                  </TableCell>
+                  <TableCell>
+                    {lead.phone && buildWhatsAppUrl(lead.phone) ? (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <a
+                              href={buildWhatsAppUrl(lead.phone)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center justify-center h-8 w-8 rounded-md text-green-600 hover:bg-green-50 hover:text-green-700"
+                            >
+                              <MessageCircle className="h-4 w-4" />
+                            </a>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Abrir WhatsApp</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    ) : (
+                      <span className="text-muted-foreground text-xs">-</span>
+                    )}
                   </TableCell>
                   <TableCell>
                     <Badge variant="secondary">{lead.category}</Badge>
