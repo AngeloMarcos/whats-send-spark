@@ -150,14 +150,15 @@ export function buildWhatsAppUrl(rawPhone: string, message?: string): string {
     return '';
   }
   
-  // 4) Build URL in wa.me format with country code 55
-  const baseUrl = `https://wa.me/55${digits}`;
+  // 4) Build URL using web.whatsapp.com/send to avoid api.whatsapp.com blocking
+  const phone = `55${digits}`;
+  const params = new URLSearchParams({ phone });
   
   if (message) {
-    return `${baseUrl}?text=${encodeURIComponent(message)}`;
+    params.set('text', message);
   }
   
-  return baseUrl;
+  return `https://web.whatsapp.com/send?${params.toString()}`;
 }
 
 /**
