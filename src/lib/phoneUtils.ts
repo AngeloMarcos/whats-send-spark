@@ -150,14 +150,25 @@ export function buildWhatsAppUrl(rawPhone: string, message?: string): string {
     return '';
   }
   
-  // 4) Build URL using web.whatsapp.com/send to avoid api.whatsapp.com blocking
   const phone = `55${digits}`;
-  const params = new URLSearchParams({ phone });
   
+  // 4) Detect mobile vs desktop
+  // Mobile: wa.me opens WhatsApp app directly
+  // Desktop: web.whatsapp.com avoids api.whatsapp.com ERR_BLOCKED_BY_RESPONSE
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+    typeof navigator !== 'undefined' ? navigator.userAgent : ''
+  );
+  
+  if (isMobile) {
+    const baseUrl = `https://wa.me/${phone}`;
+    return message ? `${baseUrl}?text=${encodeURIComponent(message)}` : baseUrl;
+  }
+  
+  // Desktop: use web.whatsapp.com to avoid api.whatsapp.com blocking
+  const params = new URLSearchParams({ phone });
   if (message) {
     params.set('text', message);
   }
-  
   return `https://web.whatsapp.com/send?${params.toString()}`;
 }
 
